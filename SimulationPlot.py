@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from scipy.spatial import ConvexHull, QhullError
 
 eps = 1e-1
@@ -42,6 +43,22 @@ def _set_tight_joint_limits(ax, points, margin_fraction=0.08):
         span = value_max - value_min
         padding = span * margin_fraction if span > 0 else max(eps, abs(value_min) * margin_fraction)
         set_limits(value_min - padding, value_max + padding)
+
+
+def _player1_executed_cost(states, inputs, game, solver):
+    """Return P1's accumulated stage cost for executed steps this iteration."""
+    if len(inputs) == 0:
+        return 0.0
+
+    target = np.asarray(game.xf, dtype=float).reshape(-1)
+    q_stage = np.asarray(solver.Qk, dtype=float)
+    r_stage = float(solver.R1)
+    total_cost = 0.0
+    for state, control in zip(states[:-1], inputs):
+        dx = state[:game.nx1] - target
+        u1 = control[:game.nu1]
+        total_cost += float(dx @ q_stage @ dx + r_stage * (u1 @ u1))
+    return total_cost
 
 
 def close_simulation_plots():
@@ -146,14 +163,17 @@ def plot_simulation_init(game):
     ax_u.grid(True, alpha=0.3)
     ax_u.legend(loc="best", ncol=2)
 
-    lines["predicted_p1_cost"], = ax_cost.plot(
-        [], [], "C5o-", markersize=3, label="predicted P1 cost-to-go"
+    ax_cost.set_xlabel("iteration")
+    ax_cost.set_ylabel("total cost-to-go")
+    ax_cost.set_title("P1 total cost-to-go by iteration")
+    ax_cost.grid(True, axis="y", alpha=0.3)
+    ax_cost.legend(
+        handles=(
+            Patch(facecolor="C5", label="completed total cost"),
+            Patch(facecolor="C4", label="current predicted iteration total"),
+        ),
+        loc="best",
     )
-    ax_cost.set_xlabel("simulation time")
-    ax_cost.set_ylabel("predicted cost")
-    ax_cost.set_title("Predicted next-iteration cost (available after iteration 1)")
-    ax_cost.grid(True, alpha=0.3)
-    ax_cost.legend(loc="best")
 
     lines["p1_arrival_time"], = ax_arrival.plot(
         [], [], "C0o-", label="P1 arrival time"
@@ -180,8 +200,8 @@ def plot_simulation_init(game):
         "lines": lines,
         "iteration": game.iteration,
         "past_xy_lines": [],
-        "predicted_cost_times": [],
-        "predicted_cost_values": [],
+        "cost_bars": None,
+        "plotted_iteration_costs": None,
     }
     plot_simulation._state = state
     plt.pause(1.0)
@@ -230,9 +250,6 @@ def plot_simulation(game, solver1, solver2, pause=0.01):
             )
             state["past_xy_lines"].extend((past_p1, past_p2))
         state["iteration"] = game.iteration
-        state["predicted_cost_times"].clear()
-        state["predicted_cost_values"].clear()
-        lines["predicted_p1_cost"].set_data([], [])
 
     lines["p1_state"].set_data(x[:, 0], x[:, 1])
     lines["p2_state"].set_data(x[:, p2_i], x[:, p2_i + 1])
@@ -254,31 +271,46 @@ def plot_simulation(game, solver1, solver2, pause=0.01):
     sampled_states = getattr(analyzed_data, "state", [])
     solution = getattr(solver1, "Solution", None)
 
-    # The sampled-terminal solver exposes the predicted cost-to-go selected
-    # from the previous iteration's learned data. Build its trace in realtime
-    # beginning with the second simulation iteration.
-    predicted_cost = getattr(solution, "player1_cost", np.nan)
-    predicted_time = getattr(solution, "t", np.nan)
-    solution_success = bool(getattr(solution, "success", False))
-    if (
-        game.iteration > 1
-        and solution_success
-        and np.isfinite(predicted_time)
-        and np.isfinite(predicted_cost)
-    ):
-        cost_times = state["predicted_cost_times"]
-        cost_values = state["predicted_cost_values"]
-        if cost_times and np.isclose(cost_times[-1], predicted_time):
-            cost_values[-1] = float(predicted_cost)
-        else:
-            cost_times.append(float(predicted_time))
-            cost_values.append(float(predicted_cost))
-        lines["predicted_p1_cost"].set_data(cost_times, cost_values)
-        ax_cost.relim()
-        ax_cost.autoscale_view()
-        ax_cost.set_title(f"Predicted P1 cost-to-go - iteration {game.iteration}")
-
     raw_data = getattr(learned_data, "RawData", [])
+    completed_iteration_costs = tuple(
+        (iteration_index + 1, float(iteration_data.p1_total_cost))
+        for iteration_index, iteration_data in enumerate(raw_data)
+        if np.isfinite(getattr(iteration_data, "p1_total_cost", np.nan))
+    )
+    plotted_costs = tuple(
+        (iteration, cost, False)
+        for iteration, cost in completed_iteration_costs
+    )
+    predicted_cost_to_go = getattr(solution, "player1_cost", np.nan)
+    if (
+        bool(getattr(solution, "success", False))
+        and np.isfinite(predicted_cost_to_go)
+        and game.iteration not in {item[0] for item in completed_iteration_costs}
+    ):
+        predicted_iteration_cost = _player1_executed_cost(x, u, game, solver1)
+        predicted_iteration_cost += float(predicted_cost_to_go)
+        plotted_costs += ((game.iteration, predicted_iteration_cost, True),)
+
+    if plotted_costs != state["plotted_iteration_costs"]:
+        if state["cost_bars"] is not None:
+            state["cost_bars"].remove()
+
+        plotted_iterations = [item[0] for item in plotted_costs]
+        plotted_values = [item[1] for item in plotted_costs]
+        bar_colors = ["C4" if item[2] else "C5" for item in plotted_costs]
+        state["cost_bars"] = ax_cost.bar(
+            plotted_iterations,
+            plotted_values,
+            color=bar_colors,
+            width=0.7,
+        )
+        state["plotted_iteration_costs"] = plotted_costs
+        if plotted_iterations:
+            ax_cost.set_xticks(plotted_iterations)
+            ax_cost.set_xlim(0.4, plotted_iterations[-1] + 0.6)
+        ax_cost.relim()
+        ax_cost.autoscale_view(scalex=False)
+
     p1_completed_iterations = []
     p1_arrival_times = []
     p2_completed_iterations = []
