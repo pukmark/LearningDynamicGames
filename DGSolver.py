@@ -530,8 +530,15 @@ class DGSolver:
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
         sample_times = np.asarray(analyzed.t)
-        candidate_indices = np.where((sample_times > t) & (sample_times <= t + (1.5 * self.N) * self.dt))[0]
         previous_solution = copy.deepcopy(self.Solution)
+        previous_sample_time = getattr(previous_solution, "terminal_sample_time", -np.inf)
+        candidate_indices = np.where(
+            (sample_times > t)
+            & (sample_times > previous_sample_time-2*self.dt)
+            & (sample_times <= t + (1.5 * self.N) * self.dt)
+        )[0]
+        if candidate_indices.shape[0]==0:
+            candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
         previous_solver = getattr(self, "Solver", None)
         best_solution = None
         best_solver = None
@@ -618,6 +625,7 @@ class DGSolver:
                 best_solution = candidate_solution
                 best_solver = candidate_solver
                 best_solution.terminal_sample_index = sample_index
+                best_solution.terminal_sample_time = float(sample_times[sample_index])
                 best_solution.terminal_sample_state = states[sample_index].copy()
                 best_solution.player1_cost = candidate_cost
                 best_solution.terminal_workers = max_workers

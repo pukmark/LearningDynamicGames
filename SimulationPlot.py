@@ -161,19 +161,19 @@ def plot_simulation_init(game):
     ax_u.set_ylabel("input")
     ax_u.set_title("Inputs vs time")
     ax_u.grid(True, alpha=0.3)
-    ax_u.legend(loc="best", ncol=2)
+    # ax_u.legend(loc="best", ncol=2)
 
     ax_cost.set_xlabel("iteration")
     ax_cost.set_ylabel("total cost-to-go")
     ax_cost.set_title("P1 total cost-to-go by iteration")
     ax_cost.grid(True, axis="y", alpha=0.3)
-    ax_cost.legend(
-        handles=(
-            Patch(facecolor="C5", label="completed total cost"),
-            Patch(facecolor="C4", label="current predicted iteration total"),
-        ),
-        loc="best",
-    )
+    # ax_cost.legend(
+    #     handles=(
+    #         Patch(facecolor="C5", label="completed total cost"),
+    #         Patch(facecolor="C4", label="current predicted iteration total"),
+    #     ),
+    #     loc="best",
+    # )
 
     lines["p1_arrival_time"], = ax_arrival.plot(
         [], [], "C0o-", label="P1 arrival time"
