@@ -157,7 +157,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, xf, 
-                       dt=0.1, horizon=10, 
+                       dt=0.1, horizon=7, 
                        alpha=0.5,
                        R1 = 0.04,
                        R2 = 0.04,
@@ -165,7 +165,7 @@ class DGSolver:
                        p_tol=1e-6, 
                        verbose = False, 
                        options=None,
-                       terminal_constraint_mode="sampled_points"):
+                       constraint_mode="sampled_points"):
         if horizon <= 0:
             raise ValueError("horizon must be positive")
 
@@ -177,12 +177,12 @@ class DGSolver:
             self.LearnedData = None
         else:
             self.LearnedData = LearnedData
-        valid_terminal_modes = {"convex_hull", "sampled_points"}
-        if terminal_constraint_mode not in valid_terminal_modes:
+        valid_constraint_mode = {"convex_hull", "sampled_points"}
+        if constraint_mode not in valid_constraint_mode:
             raise ValueError(
                 "terminal_constraint_mode must be 'convex_hull' or 'sampled_points'"
             )
-        self.terminal_constraint_mode = terminal_constraint_mode
+        self.constraint_mode = constraint_mode
         if self.LearnedData is None:
             self.alpha_vec = alpha * np.ones((self.N+1,1))
         else:
@@ -515,7 +515,7 @@ class DGSolver:
 
     def step(self, t, x0, forced_alpha=None, u1_0=None, u2_0=None):
         """Solve one step using the configured learned terminal-state mode."""
-        if self.terminal_constraint_mode == "sampled_points" and self.LearnedData is not None:
+        if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
                 t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0
             )
@@ -530,10 +530,7 @@ class DGSolver:
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
         sample_times = np.asarray(analyzed.t)
-        candidate_indices = np.where(
-            (sample_times > t + (3 * self.N / 4) * self.dt)
-            & (sample_times <= t + (1.5 * self.N) * self.dt)
-        )[0]
+        candidate_indices = np.where(sample_times <= t + (1.5 * self.N) * self.dt    )[0]
         previous_solution = copy.deepcopy(self.Solution)
         previous_solver = getattr(self, "Solver", None)
         best_solution = None
@@ -1077,6 +1074,12 @@ class DGSolver:
         a_vec1 = np.zeros((len(self.LearnedData.AnalyzedData.state)))
         for j, isort in enumerate(arg_sort[0:sorted_states.shape[0]]):
             a_vec1[isort] = a_vec[j]
+            
+        if self.constraint_mode == "sampled_points":
+            if proximity_factor > 1.0-1e-8:
+                return a_vec1, proximity_factor
+            else:
+                return 0.0, 0.0
         
         return a_vec1, proximity_factor
         
