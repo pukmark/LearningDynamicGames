@@ -844,9 +844,9 @@ class DGSolver:
                                                convergence_tolerance=tol,
                                                nms="{nms}",
                                                crash_nbchange_limit=50,
-                                               major_iteration_limit=5000,
-                                               minor_iteration_limit=800000,
-                                               cumulative_iteration_limit=800000,
+                                               major_iteration_limit=500,
+                                               minor_iteration_limit=10000,
+                                               cumulative_iteration_limit=100000,
                                                restart_limit=100)
         success = status == PATHSolver.MCP_Solved
 
@@ -888,12 +888,12 @@ class DGSolver:
         if i != z.shape[0]:
             raise RuntimeError(f"unpacked {i} entries from z, expected {z.shape[0]}")
 
-
+        
         if success:
             self.Solution = SimpleNamespace()
+            self.Solution.success = bool(success)
             self.Solution.t = t
             self.Solution.z = z
-            self.Solution.success = bool(success)
             self.Solution.residual = float(residual)
             self.Solution.status = status.__name__
             self.Solution.x1 = x1
@@ -908,6 +908,7 @@ class DGSolver:
             self.Solution.x0 = x0
             self.Solution.indx = 0
         elif u1_0 is None and hasattr(self.Solution, "indx"):
+            self.Solution.success = bool(success)
             self.Solution.indx = min(self.Solution.indx + 1, self.N - 1)
 
         if not hasattr(self.Solution, "u1") or not hasattr(self.Solution, "u2"):

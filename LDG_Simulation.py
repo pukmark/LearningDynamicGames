@@ -1,3 +1,5 @@
+import os
+os.system('clear')
 import numpy as np
 
 from Game import GameDynamics
