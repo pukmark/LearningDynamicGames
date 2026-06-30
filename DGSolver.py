@@ -162,7 +162,7 @@ class DGSolver:
                        R1 = 0.04,
                        R2 = 0.04,
                        LearnedData = None, 
-                       p_tol=1e-6, 
+                       p_tol=1e-5, 
                        verbose = False, 
                        options=None,
                        constraint_mode="sampled_points"):
@@ -530,7 +530,7 @@ class DGSolver:
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
         sample_times = np.asarray(analyzed.t)
-        candidate_indices = np.where(sample_times <= t + (1.5 * self.N) * self.dt    )[0]
+        candidate_indices = np.where((sample_times > t) & (sample_times <= t + (1.5 * self.N) * self.dt))[0]
         previous_solution = copy.deepcopy(self.Solution)
         previous_solver = getattr(self, "Solver", None)
         best_solution = None
