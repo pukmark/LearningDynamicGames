@@ -25,6 +25,8 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 Niterations = 15
 arrival_tolerance = 0.1
 xf = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
+max_workers = max(1, int(os.cpu_count() * 0.20))
+# max_workers = 1
         
 
 if __name__ == '__main__':
@@ -43,11 +45,11 @@ if __name__ == '__main__':
 
     # Start Julia/PATHSolver once for this simulation execution. The main
     # process and persistent terminal workers are reused by every iteration.
-    initialize_pathsolver_runtime()
+    initialize_pathsolver_runtime(max_workers=max_workers)
 
     for iter in range(Niterations):
         Game.reset_game()
-        Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1)
+        Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
         Solver1.alpha_vec[0] = 1.0
         EndGame = False
         while not EndGame:

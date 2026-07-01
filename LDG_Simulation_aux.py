@@ -67,7 +67,7 @@ def rebuild_analyzed_data(
     solver,
     xf,
     tolerance,
-    iterations_to_use=2,
+    iterations_to_use=100,
 ):
     """Rebuild analyzed data using only the latest RawData iterations."""
     analyzed_data = init_analyzed_data()

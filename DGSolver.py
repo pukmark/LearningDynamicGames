@@ -162,7 +162,8 @@ class DGSolver:
                        R1 = 0.04,
                        R2 = 0.04,
                        LearnedData = None, 
-                       p_tol=1e-5, 
+                       p_tol=1e-5,
+                       max_workers = 1,
                        verbose = False, 
                        options=None,
                        constraint_mode="sampled_points"):
@@ -187,7 +188,7 @@ class DGSolver:
             self.alpha_vec = alpha * np.ones((self.N+1,1))
         else:
             self.alpha_vec = np.ones((self.N+1,1))
-        
+        self.max_workers = max_workers
         self.options = options.copy() if options is not None else {}
         self.solver = None
         self.is_built = False
@@ -553,10 +554,8 @@ class DGSolver:
             candidate.n_data = 1
             candidate_data_by_index[int(sample_index)] = candidate_data
 
-        cpu_count = os.cpu_count() or 1
-        max_workers = min(len(candidate_indices), max(1, int(cpu_count * 0.20)))
         candidate_results = []
-        if max_workers == 1:
+        if self.max_workers == 1:
             for sample_index, candidate_data in candidate_data_by_index.items():
                 self.Solution = copy.deepcopy(previous_solution)
                 self._step_once(
@@ -576,15 +575,13 @@ class DGSolver:
                             self.Solver,
                         )
                     )
-        elif max_workers > 1:
+        elif self.max_workers > 1:
             worker_solver = copy.copy(self)
             worker_solver.Solution = copy.deepcopy(previous_solution)
             worker_solver.Solver = None
             worker_solver.solver = None
             worker_solver.is_built = False
-            executor = _get_terminal_executor(
-                max(2, max(1, int(cpu_count * 0.20)))
-            )
+            executor = _get_terminal_executor(self.max_workers)
             futures = {
                 executor.submit(
                     _solve_sampled_terminal_candidate,
@@ -628,7 +625,7 @@ class DGSolver:
                 best_solution.terminal_sample_time = float(sample_times[sample_index])
                 best_solution.terminal_sample_state = states[sample_index].copy()
                 best_solution.player1_cost = candidate_cost
-                best_solution.terminal_workers = max_workers
+                best_solution.terminal_workers = self.max_workers
 
         if best_solution is None:
             self.Solution = previous_solution
