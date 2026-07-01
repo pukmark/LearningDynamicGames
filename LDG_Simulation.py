@@ -24,7 +24,7 @@ dt = 0.1
 tf = 7.0
 dynamics_type = 1  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 3
+Niterations = 22
 arrival_tolerance = 0.1
 learned_data_path = "LearnedData.pkl"
 xf = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
@@ -53,8 +53,7 @@ if __name__ == '__main__':
 
     for iter in range(Niterations):
         Game.reset_game()
-        # Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
-        Solver1 = DGSolver(Game, xf=xf, alpha=alpha2, max_workers=max_workers)
+        Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
         EndGame = False
         while not EndGame:
             # Player 1 Controller
