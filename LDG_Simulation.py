@@ -22,7 +22,7 @@ dt = 0.1
 tf = 7.0
 dynamics_type = 1  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 15
+Niterations = 25
 arrival_tolerance = 0.1
 xf = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
 max_workers = max(1, int(os.cpu_count() * 0.20))
