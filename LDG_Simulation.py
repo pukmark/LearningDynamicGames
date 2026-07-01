@@ -8,9 +8,11 @@ from LDG_Simulation_aux import (
     append_terminal_learned_state,
     arrival_times,
     init_learned_data,
+    load_learned_data,
     player_state,
     rebuild_analyzed_data,
     record_learned_state,
+    save_learned_data,
 )
 from SimulationPlot import *
 
@@ -22,8 +24,9 @@ dt = 0.1
 tf = 7.0
 dynamics_type = 1  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 25
+Niterations = 3
 arrival_tolerance = 0.1
+learned_data_path = "LearnedData.pkl"
 xf = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
 max_workers = max(1, int(os.cpu_count() * 0.20))
 # max_workers = 1
@@ -39,6 +42,7 @@ if __name__ == '__main__':
     
     Game = GameDynamics(dt, x0, xf, L=L, W=W, dynamics_type=dynamics_type)
     LearnedData = init_learned_data()
+    # To reuse saved data instead: LearnedData = load_learned_data(learned_data_path)
     
     Solver2 = DGSolver(Game, xf=xf, alpha=alpha2)
     plot_simulation_init(Game)
@@ -49,8 +53,8 @@ if __name__ == '__main__':
 
     for iter in range(Niterations):
         Game.reset_game()
-        Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
-        Solver1.alpha_vec[0] = 1.0
+        # Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
+        Solver1 = DGSolver(Game, xf=xf, alpha=alpha2, max_workers=max_workers)
         EndGame = False
         while not EndGame:
             # Player 1 Controller
@@ -80,7 +84,7 @@ if __name__ == '__main__':
         
             u = np.concatenate((u1[0:2], u2[2:]))
             GameFlag = Game.step(u=u)
-            plot_simulation(Game, Solver1, Solver2)
+            plot_simulation(Game, Solver1, Solver2, LearnedData)
             
             record_learned_state(LearnedData, Game, iter, alpha1)
             if GameFlag != Game.STEP_OK:
@@ -135,11 +139,13 @@ if __name__ == '__main__':
             xf,
             arrival_tolerance,
         )
+        save_learned_data(LearnedData, learned_data_path)
         
         Solver2.Solution.success = False
 
-    plot_simulation(Game, Solver1, Solver2, pause=None)
+    plot_simulation(Game, Solver1, Solver2, LearnedData, pause=None)
     figure_path = save_simulation_figure()
     close_simulation_plots()
     print(f"Saved figure to {figure_path}")
+    print(f"Saved learned data to {learned_data_path}")
     print("Done!!!")

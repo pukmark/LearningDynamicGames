@@ -206,7 +206,7 @@ def plot_simulation_init(game):
     plot_simulation._state = state
     plt.pause(1.0)
 
-def plot_simulation(game, solver1, solver2, pause=0.01):
+def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     """Update a realtime plot for the current game and solver state."""
 
     state = getattr(plot_simulation, "_state", None)
@@ -266,9 +266,9 @@ def plot_simulation(game, solver1, solver2, pause=0.01):
     lines["x_joint_target"].set_data(joint_x_target[:, 0], joint_x_target[:, 1])
     lines["y_joint_target"].set_data(joint_y_target[:, 0], joint_y_target[:, 1])
 
-    learned_data = getattr(solver1, "LearnedData", None)
-    analyzed_data = getattr(learned_data, "AnalyzedData", None)
-    sampled_states = getattr(analyzed_data, "state", [])
+    learned_data = LearnedData
+    analyzed_data = learned_data.AnalyzedData
+    sampled_states = analyzed_data.state
     solution = getattr(solver1, "Solution", None)
 
     raw_data = getattr(learned_data, "RawData", [])

@@ -1,7 +1,32 @@
+import pickle
+from pathlib import Path
 from types import SimpleNamespace
 
 import casadi as ca
 import numpy as np
+
+
+def save_learned_data(learned_data, path="LearnedData.pkl"):
+    """Serialize learned simulation data so it can be reused later."""
+    path = Path(path)
+    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+    with temporary_path.open("wb") as file:
+        pickle.dump(learned_data, file, protocol=pickle.HIGHEST_PROTOCOL)
+    temporary_path.replace(path)
+    return path
+
+
+def load_learned_data(path="LearnedData.pkl"):
+    """Load learned simulation data from a trusted pickle file."""
+    path = Path(path)
+    with path.open("rb") as file:
+        learned_data = pickle.load(file)
+
+    if not hasattr(learned_data, "RawData") or not hasattr(
+        learned_data, "AnalyzedData"
+    ):
+        raise ValueError(f"{path} does not contain valid learned data")
+    return learned_data
 
 
 def player_state(px, py, vx=0.0, vy=0.0, dynamics_type=1):
