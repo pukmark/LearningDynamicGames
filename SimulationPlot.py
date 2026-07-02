@@ -47,14 +47,14 @@ def _set_tight_joint_limits(ax, points, margin_fraction=0.08):
 
 def _player1_executed_cost(states, inputs, game, solver):
     """Return P1's accumulated stage cost for executed steps this iteration."""
-    if len(inputs) == 0:
+    if len(inputs) <= 1:
         return 0.0
 
     target = np.asarray(game.xf, dtype=float).reshape(-1)
     q_stage = np.asarray(solver.Qk, dtype=float)
     r_stage = float(solver.R1)
     total_cost = 0.0
-    for state, control in zip(states[:-1], inputs):
+    for state, control in zip(states[:-2], inputs[:-1]):
         dx = state[:game.nx1] - target
         u1 = control[:game.nu1]
         total_cost += float(dx @ q_stage @ dx + r_stage * (u1 @ u1))
