@@ -29,7 +29,7 @@ arrival_tolerance = 0.1
 learned_data_path = "LearnedData.pkl"
 xf = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
 max_workers = max(1, int(os.cpu_count() * 0.20))
-max_workers = 1
+# max_workers = 1
         
 
 if __name__ == '__main__':
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     Game = GameDynamics(dt, x0, xf, L=L, W=W, dynamics_type=dynamics_type)
     LearnedData = init_learned_data()
     # To reuse saved data instead: LearnedData = load_learned_data(learned_data_path)
-    LearnedData = load_learned_data(learned_data_path)
+    # LearnedData = load_learned_data(learned_data_path)
     
     Solver2 = DGSolver(Game, xf=xf, alpha=alpha2)
     plot_simulation_init(Game)

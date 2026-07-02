@@ -1094,7 +1094,7 @@ class DGSolver:
         if factor > 1.0:
             return 0, 0.0
             
-        proximity_factor = a_vec@a_vec
+        proximity_factor = np.sqrt(a_vec@a_vec)
         proximity_factor -= np.clip(10.0*(factor-1.0), 0.0, 1.0)
         
         a_vec1 = np.zeros((len(self.LearnedData.AnalyzedData.state)))
@@ -1102,7 +1102,7 @@ class DGSolver:
             a_vec1[isort] = a_vec[j]
             
         if self.constraint_mode == "sampled_points":
-            if proximity_factor > 1.0-1e-6:
+            if proximity_factor > 1.0-1e-4:
                 return a_vec1, proximity_factor
             else:
                 return 0.0, 0.0
