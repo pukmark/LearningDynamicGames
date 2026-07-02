@@ -98,7 +98,7 @@ def rebuild_analyzed_data(
     analyzed_data = init_analyzed_data()
     first_iteration = max(0, current_iteration - iterations_to_use + 1)
 
-    for raw_data in learned_data.RawData[first_iteration:current_iteration + 1]:
+    for raw_data in learned_data.RawData[current_iteration + 1:first_iteration - 1:-1]:
         states = raw_data.x
         p1_stage_costs = [
             (
