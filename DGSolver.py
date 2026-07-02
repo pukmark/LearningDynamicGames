@@ -132,6 +132,8 @@ def _solve_sampled_terminal_candidate(
     forced_alpha,
     u1_0,
     u2_0,
+    a_set,
+    proximity_factor,
 ):
     """Process-pool entry point for one discrete terminal-state solve."""
     solver = copy.copy(worker_solver)
@@ -145,6 +147,7 @@ def _solve_sampled_terminal_candidate(
             u1_0=u1_0,
             u2_0=u2_0,
             terminal_learned_data=candidate_data,
+            precomputed_a_set=(a_set, proximity_factor),
         )
         if not solver.last_solve_success:
             return sample_index, None, None, None
@@ -192,6 +195,7 @@ class DGSolver:
         self.options = options.copy() if options is not None else {}
         self.solver = None
         self.is_built = False
+        self._sampled_solver_cache = {}
         
         self.Qk = np.diag([1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 0.25, 0.25])
         self.R1 = R1
@@ -532,6 +536,7 @@ class DGSolver:
         states = np.asarray(analyzed.state)
         sample_times = np.asarray(analyzed.t)
         previous_solution = copy.deepcopy(self.Solution)
+        a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", -np.inf)
         candidate_indices = np.where(
             (sample_times > t)
@@ -558,6 +563,7 @@ class DGSolver:
         if self.max_workers == 1:
             for sample_index, candidate_data in candidate_data_by_index.items():
                 self.Solution = copy.deepcopy(previous_solution)
+                candidate_solver = self._sampled_solver_cache.get(sample_index)
                 self._step_once(
                     t,
                     x0,
@@ -565,7 +571,11 @@ class DGSolver:
                     u1_0=u1_0,
                     u2_0=u2_0,
                     terminal_learned_data=candidate_data,
+                    terminal_solver=candidate_solver,
+                    precomputed_a_set=(a_set, proximity_factor),
                 )
+                if candidate_solver is None:
+                    self._sampled_solver_cache[sample_index] = self.Solver
                 if self.last_solve_success:
                     candidate_results.append(
                         (
@@ -593,6 +603,8 @@ class DGSolver:
                     forced_alpha,
                     u1_0,
                     u2_0,
+                    a_set,
+                    proximity_factor,
                 ): sample_index
                 for sample_index, candidate_data in candidate_data_by_index.items()
             }
@@ -673,6 +685,8 @@ class DGSolver:
         u1_0=None,
         u2_0=None,
         terminal_learned_data=None,
+        terminal_solver=None,
+        precomputed_a_set=None,
     ):
         """
         Solve one game step and extract the planned trajectories from z.
@@ -686,7 +700,10 @@ class DGSolver:
             Tuple of (first control, success flag, residual, solver status).
         """
         
-        a_set, proximity_factor = self.calc_a_set(x0)
+        if precomputed_a_set is not None:
+            a_set, proximity_factor = precomputed_a_set
+        else:
+            a_set, proximity_factor = self.calc_a_set(x0)
         alpha_vec = self.alpha_vec
         if forced_alpha is not None:
             alpha_vec = forced_alpha * np.ones_like(self.alpha_vec)
@@ -697,7 +714,10 @@ class DGSolver:
             self.Solver = self.build_solver(LearnedData=self.LearnedData)
         if terminal_learned_data is not None:
             LearnedData1 = terminal_learned_data
-            self.Solver = self.build_solver(LearnedData=LearnedData1)
+            if terminal_solver is None:
+                self.Solver = self.build_solver(LearnedData=LearnedData1)
+            else:
+                self.Solver = terminal_solver
         elif self.LearnedData is not None:
             LearnedData1 = copy.deepcopy(self.LearnedData)
             future = np.where((np.array(LearnedData1.AnalyzedData.t) > t + (3*self.N / 4) * self.dt) &
@@ -1082,7 +1102,7 @@ class DGSolver:
             a_vec1[isort] = a_vec[j]
             
         if self.constraint_mode == "sampled_points":
-            if proximity_factor > 1.0-1e-8:
+            if proximity_factor > 1.0-1e-6:
                 return a_vec1, proximity_factor
             else:
                 return 0.0, 0.0
