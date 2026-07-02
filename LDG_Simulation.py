@@ -139,10 +139,10 @@ if __name__ == '__main__':
             xf,
             arrival_tolerance,
         )
-        save_learned_data(LearnedData, learned_data_path)
         
         Solver2.Solution.success = False
 
+    save_learned_data(LearnedData, learned_data_path)
     plot_simulation(Game, Solver1, Solver2, LearnedData, pause=None)
     figure_path = save_simulation_figure()
     close_simulation_plots()
