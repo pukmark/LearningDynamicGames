@@ -229,7 +229,8 @@ def plot_simulation_init(game):
         "plotted_iteration_costs": None,
     }
     plot_simulation._state = state
-    plt.pause(1.0)
+    if plt.get_backend().lower() != "agg":
+        plt.pause(1.0)
 
 def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     """Update a realtime plot for the current game and solver state."""
@@ -260,20 +261,20 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 np.asarray(p1_x).copy(),
                 np.asarray(p1_y).copy(),
                 color="C0",
-                marker='s',
+                marker='o',
                 linewidth=1.0,
-                alpha=0.18,
+                alpha=0.1,
                 zorder=1,
             )
             past_p2, = ax_xy.plot(
                 np.asarray(p2_x).copy(),
                 np.asarray(p2_y).copy(),
                 color="C1",
-                marker='s',
+                marker='o',
                 linewidth=1.0,
-                alpha=0.18,
+                alpha=0.1,
                 zorder=1,
-            )
+                )
             state["past_xy_lines"].extend((past_p1, past_p2))
         state["iteration"] = game.iteration
 
@@ -415,7 +416,11 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     _set_tight_joint_limits(ax_xpos, joint_x_positions)
     _set_tight_joint_limits(ax_ypos, joint_y_positions)
 
-    if solution is not None:
+    if (
+        solution is not None
+        and hasattr(solution, "x1")
+        and hasattr(solution, "x2")
+    ):
         lines["p1_prediction"].set_data(solution.x1[:, 0], solution.x1[:, 1])
         lines["p2_prediction"].set_data(solution.x2[:, 0], solution.x2[:, 1])
     else:

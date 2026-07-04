@@ -197,13 +197,26 @@ class DGSolver:
         self.is_built = False
         self._sampled_solver_cache = {}
         
-        self.Qk = np.diag([1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 0.25, 0.25])
+        self.Qk = np.diag([1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 0.2, 0.2])
         self.R1 = R1
         self.R2 = R2
         self.p_tol = p_tol
         self.verbose = verbose
         self.nms = True
         
+        x1 = ca.SX.sym('x1', self.game.nx1)
+        x2 = ca.SX.sym('x2', self.game.nx2)
+        u1 = ca.SX.sym('u1', self.game.nu1)
+        u2 = ca.SX.sym('u2', self.game.nu2)
+
+        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.xf.T) < self.p_tol, 0.0, 1.0)
+        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.xf.T) < self.p_tol, 0.0, 1.0)
+        
+        self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.xf.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
+        self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.xf.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
+
+
+
         self.proximity_Q = np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
         self.small_dx = 1/self.game.nx*np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else 1/self.game.nx*np.array([1e-3, 1e-3, 1e-3, 1e-3, 1e-4, 1e-4, 1e-4, 1e-4])
         self.large_dx = 1/self.game.nx*np.array([2e-1, 2e-1, 2e-1, 2e-1]) if self.game.is_single_integrator else 1/self.game.nx*np.array([2e-1, 2e-1, 2e-1, 2e-1, 2e-2, 2e-2, 2e-2, 2e-2])
@@ -241,14 +254,15 @@ class DGSolver:
         # Define The first player lagrangian:
         L1 = 0
         for k in range(self.N):
-            L1 += ca.bilin(self.Qk, x1[k+1,:]-self.xf)
-            L1 += ca.bilin(self.R1*np.eye(self.game.nu1), u1[k,:])
+            L1 += self.l1(x1[k,:], u1[k,:])
             
         if Terminal_Safe_Set is not None:
             if Terminal_Safe_Set.state.shape[0] > 1:
                 L1 += ca.mtimes(Terminal_Safe_Set.Cost2Go.reshape(1,-1), ai_xf)
             else:
                 L1 += Terminal_Safe_Set.Cost2Go
+        else:
+            L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape))
         # Player 1 Dynamics:
         h = []
         n_mu = 0
@@ -341,8 +355,8 @@ class DGSolver:
         # Define the second player lagrangian using the same quadratic structure.
         L2 = 0
         for k in range(self.N):
-            L2 += ca.bilin(self.Qk, x2[k+1, :] - self.xf)
-            L2 += ca.bilin(self.R2 * np.eye(self.game.nu2), u2[k, :])
+            L2 += self.l2(x2[k, :], u2[k, :])
+        L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape))
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
         h = []
@@ -671,12 +685,8 @@ class DGSolver:
         cost = 0.0
         target = np.asarray(self.xf, dtype=float).reshape(-1)
         for k in range(self.N):
-            dx = solution.x1[k + 1] - target
-            cost += float(dx @ self.Qk @ dx)
-            cost += float(self.R1 * (solution.u1[k] @ solution.u1[k]))
-        cost_to_go = np.asarray(
-            learned_data.AnalyzedData.Cost2Go, dtype=float
-        ).reshape(-1)
+            cost += float(self.l1(solution.x1[k], solution.u1[k]))
+        cost_to_go = np.asarray(learned_data.AnalyzedData.Cost2Go, dtype=float).reshape(-1)
         weights = np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1) if solution.ai_xf_vec.shape[0]>1 else np.asarray(1, dtype=float).reshape(-1)
         return cost + float(cost_to_go @ weights)
 

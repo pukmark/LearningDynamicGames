@@ -104,8 +104,7 @@ def rebuild_analyzed_data(
         states = raw_data.x
         p1_stage_costs = [
             (
-                np.array(ca.bilin(solver.Qk, state[:game.nx1] - xf))[0, 0]
-                + np.array(ca.bilin(solver.R1 * np.eye(game.nu1), u[:game.nu1]))[0, 0]
+                solver.l1(state[:game.nx1], u[:game.nu1])
             )
             for state, u in zip(states, raw_data.u)
         ]
