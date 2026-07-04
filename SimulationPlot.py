@@ -50,14 +50,9 @@ def _player1_executed_cost(states, inputs, game, solver):
     if len(inputs) <= 1:
         return 0.0
 
-    target = np.asarray(game.xf, dtype=float).reshape(-1)
-    q_stage = np.asarray(solver.Qk, dtype=float)
-    r_stage = float(solver.R1)
     total_cost = 0.0
     for state, control in zip(states[:-2], inputs[:-1]):
-        dx = state[:game.nx1] - target
-        u1 = control[:game.nu1]
-        total_cost += float(dx @ q_stage @ dx + r_stage * (u1 @ u1))
+        total_cost += float(solver.l1(state[:game.nx1], control[:game.nu1]))
     return total_cost
 
 

@@ -209,8 +209,8 @@ class DGSolver:
         u1 = ca.SX.sym('u1', self.game.nu1)
         u2 = ca.SX.sym('u2', self.game.nu2)
 
-        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.xf.T) < self.p_tol, 0.0, 1.0)
-        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.xf.T) < self.p_tol, 0.0, 1.0)
+        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.xf.T) < 0.05, 0.0, 1.0)
+        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.xf.T) < 0.05, 0.0, 1.0)
         
         self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.xf.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
         self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.xf.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
