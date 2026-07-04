@@ -84,14 +84,21 @@ def save_simulation_figure(path="LDG_Simulation.png"):
 
 def plot_simulation_init(game):
     plt.ion()
-    fig = plt.figure(figsize=(13, 13))
-    gs = fig.add_gridspec(5, 2, width_ratios=(2.0, 1.0))
+    plot_rows = 5 if game.is_single_integrator else 6
+    fig = plt.figure(figsize=(13, 13 if game.is_single_integrator else 15))
+    gs = fig.add_gridspec(plot_rows, 2, width_ratios=(2.0, 1.0))
     ax_xy = fig.add_subplot(gs[:, 0])
     ax_xpos = fig.add_subplot(gs[0, 1])
     ax_ypos = fig.add_subplot(gs[1, 1])
     ax_u = fig.add_subplot(gs[2, 1])
-    ax_cost = fig.add_subplot(gs[3, 1])
-    ax_arrival = fig.add_subplot(gs[4, 1])
+    if game.is_single_integrator:
+        ax_velocity = None
+        ax_cost = fig.add_subplot(gs[3, 1])
+        ax_arrival = fig.add_subplot(gs[4, 1])
+    else:
+        ax_velocity = fig.add_subplot(gs[3, 1])
+        ax_cost = fig.add_subplot(gs[4, 1])
+        ax_arrival = fig.add_subplot(gs[5, 1])
 
     lines = {}
     lines["p1_state"], = ax_xy.plot([], [], "C0-", label="P1 state")
@@ -163,6 +170,22 @@ def plot_simulation_init(game):
     ax_u.grid(True, alpha=0.3)
     # ax_u.legend(loc="best", ncol=2)
 
+    if ax_velocity is not None:
+        lines["p1_v"], = ax_velocity.plot([], [], "C0-", label="P1 v")
+        lines["p2_v"], = ax_velocity.plot([], [], "C1-", label="P2 v")
+        lines["velocity_rss"], = ax_velocity.plot(
+            [], [], "C2-", linewidth=2, label="velocity RSS"
+        )
+        ax_velocity.axhline(
+            game.vx_max, color="C4", linestyle=":", linewidth=2,
+            label="RSS maximum",
+        )
+        ax_velocity.set_xlabel("time")
+        ax_velocity.set_ylabel("velocity")
+        ax_velocity.set_title("Player velocities and root sum square")
+        ax_velocity.grid(True, alpha=0.3)
+        ax_velocity.legend(loc="best", ncol=2)
+
     ax_cost.set_xlabel("iteration")
     ax_cost.set_ylabel("total cost-to-go")
     ax_cost.set_title("P1 total cost-to-go by iteration")
@@ -195,12 +218,14 @@ def plot_simulation_init(game):
         "ax_xpos": ax_xpos,
         "ax_ypos": ax_ypos,
         "ax_u": ax_u,
+        "ax_velocity": ax_velocity,
         "ax_cost": ax_cost,
         "ax_arrival": ax_arrival,
         "lines": lines,
         "iteration": game.iteration,
         "past_xy_lines": [],
         "cost_bars": None,
+        "cost_labels": [],
         "plotted_iteration_costs": None,
     }
     plot_simulation._state = state
@@ -217,6 +242,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     lines = state["lines"]
     ax_xpos = state["ax_xpos"]
     ax_ypos = state["ax_ypos"]
+    ax_velocity = state["ax_velocity"]
     ax_cost = state["ax_cost"]
     ax_arrival = state["ax_arrival"]
 
@@ -292,6 +318,9 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         plotted_costs += ((game.iteration, predicted_iteration_cost, True),)
 
     if plotted_costs != state["plotted_iteration_costs"]:
+        for label in state["cost_labels"]:
+            label.remove()
+        state["cost_labels"] = []
         if state["cost_bars"] is not None:
             state["cost_bars"].remove()
 
@@ -304,12 +333,19 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             color=bar_colors,
             width=0.7,
         )
+        cost_labels = [f"{value:.2f}".rstrip("0").rstrip(".") for value in plotted_values]
+        state["cost_labels"] = ax_cost.bar_label(
+            state["cost_bars"],
+            labels=cost_labels,
+            padding=3,
+        )
         state["plotted_iteration_costs"] = plotted_costs
         if plotted_iterations:
             ax_cost.set_xticks(plotted_iterations)
             ax_cost.set_xlim(0.4, plotted_iterations[-1] + 0.6)
         ax_cost.relim()
         ax_cost.autoscale_view(scalex=False)
+        ax_cost.margins(y=0.12)
 
     p1_completed_iterations = []
     p1_arrival_times = []
@@ -407,6 +443,18 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
 
     ax_u.relim()
     ax_u.autoscale_view()
+
+    if ax_velocity is not None:
+        p1_velocity = x[:, 2:4]
+        p2_velocity = x[:, p2_i + 2:p2_i + 4]
+        velocity_rss = np.sqrt(
+            np.sum(p1_velocity**2, axis=1) + np.sum(p2_velocity**2, axis=1)
+        )
+        lines["p1_v"].set_data(t, np.sqrt(np.sum(p1_velocity**2, axis=1)))
+        lines["p2_v"].set_data(t, np.sqrt(np.sum(p2_velocity**2, axis=1)))
+        lines["velocity_rss"].set_data(t, velocity_rss)
+        ax_velocity.relim()
+        ax_velocity.autoscale_view()
         
     ax_xy.set_title(f"XY trajectory - Iteration: {game.iteration}, alpha1={solver1.alpha_vec[0,0]:2.2}, alpha2={solver2.alpha_vec[0,0]:2.2}, time: {game.t:2.2}")
 

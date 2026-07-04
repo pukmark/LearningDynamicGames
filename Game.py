@@ -22,11 +22,11 @@ class GameDynamics:
         u_max=2,
         L=20.0,
         W=2,
-        vx_min=-4,
-        vx_max=4,
-        vy_min=-4,
-        vy_max=4,
-        d_sep=0.8,
+        vx_min=-2,
+        vx_max=2,
+        vy_min=-2,
+        vy_max=2,
+        d_sep=0.25,
         dynamics_type=2,
     ):
         if dt <= 0:
@@ -75,7 +75,14 @@ class GameDynamics:
         u1_sym = ca.SX.sym('u1_sym', self.nu1)
         u2_sym = ca.SX.sym('u2_sym', self.nu2)
 
-        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [u1_sym[0]+u2_sym[0]-self.u_min_shared, self.u_max_shared-u1_sym[0]-u2_sym[0], u1_sym[1]+u2_sym[1]-self.u_min_shared, self.u_max_shared-u2_sym[1]-u1_sym[1]])
+        # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [u1_sym[0]+u2_sym[0]-self.u_min_shared, self.u_max_shared-u1_sym[0]-u2_sym[0], u1_sym[1]+u2_sym[1]-self.u_min_shared, self.u_max_shared-u2_sym[1]-u1_sym[1]])
+        if self.is_single_integrator:
+            v1_sym = u1_sym
+            v2_sym = u2_sym
+        else:
+            v1_sym = x_sym[2:4]
+            v2_sym = x_sym[self.nx1+2:self.nx1+4]
+        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [self.vx_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym)])
 
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
         # or [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y] for double-integrator mode.
@@ -233,6 +240,8 @@ class GameDynamics:
                 return self.VELOCITY_OUTSIDE_BOUNDS
         
         f_shared = self.f_shared(self.x, self.u[:self.nu1], self.u[self.nu2:])
+        if not isinstance(f_shared, list):
+            f_shared = [f_shared]
         for f in f_shared:
             if f < -self.eps:
                 return self.SHARED_CONSTRAINT_VIOLATED

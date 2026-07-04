@@ -160,7 +160,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, xf, 
-                       dt=0.1, horizon=7, 
+                       dt=0.1, horizon=5, 
                        alpha=0.5,
                        R1 = 0.04,
                        R2 = 0.04,
@@ -214,7 +214,7 @@ class DGSolver:
         self.Solution.success = False
         self.last_solve_success = False
 
-    def build_solver(self, LearnedData = None):
+    def build_solver(self, u2_0 = None, Terminal_Safe_Set = None):
         """
         Build the dynamic game solver.
 
@@ -227,9 +227,8 @@ class DGSolver:
         u1 = ca.SX.sym('u1',self.N, self.game.nu1)
         x1_0 = ca.SX.sym('x1_0',1, self.game.nx1)
         alpha_vec = ca.SX.sym('alpha_vec', self.N+1)
-        c1_vec = ca.SX.sym('c1_i', 4)
-        if LearnedData is not None:
-            ai_xf = ca.SX.sym('ai_xf', LearnedData.AnalyzedData.state.shape[0])
+        if Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
+            ai_xf = ca.SX.sym('ai_xf', Terminal_Safe_Set.state.shape[0])
         else:
             ai_xf = []
 
@@ -245,9 +244,11 @@ class DGSolver:
             L1 += ca.bilin(self.Qk, x1[k+1,:]-self.xf)
             L1 += ca.bilin(self.R1*np.eye(self.game.nu1), u1[k,:])
             
-        if LearnedData is not None:
-            L1 += ca.mtimes(LearnedData.AnalyzedData.Cost2Go.reshape(1,-1), ai_xf)
-        
+        if Terminal_Safe_Set is not None:
+            if Terminal_Safe_Set.state.shape[0] > 1:
+                L1 += ca.mtimes(Terminal_Safe_Set.Cost2Go.reshape(1,-1), ai_xf)
+            else:
+                L1 += Terminal_Safe_Set.Cost2Go
         # Player 1 Dynamics:
         h = []
         n_mu = 0
@@ -259,11 +260,15 @@ class DGSolver:
             n_mu += h[-1].shape[0]
                     
         # Final joint state is a convex combination of the smapled dataset
-        if LearnedData is not None:
-            h.append(ca.mtimes(LearnedData.AnalyzedData.state.T[:self.game.nx1,:], ai_xf) - x1[self.N,:].T)
+        if Terminal_Safe_Set is not None:
+            if Terminal_Safe_Set.state.shape[0] > 1:
+                h.append(1.0 - ca.sum1(ai_xf))
+                n_mu += h[-1].shape[0]
+                h.append(ca.mtimes(Terminal_Safe_Set.state.T[:self.game.nx1,:], ai_xf) - x1[self.N,:].T)
+            else:
+                h.append(Terminal_Safe_Set.state.T[:self.game.nx1,:] - x1[self.N,:].T)
             n_mu += h[-1].shape[0]
-            h.append(1.0 - ca.sum1(ai_xf))
-            n_mu += h[-1].shape[0]
+            
         
         mu1 = ca.SX.sym(f'mu_1', n_mu)
         L1 += ca.dot(mu1, ca.vertcat(*h))
@@ -312,22 +317,13 @@ class DGSolver:
                         self.game.u_max - ax,
                         ay - self.game.u_min,
                         self.game.u_max - ay,
-                    ]
-                )
+                    ])
                 
-                if k==0:                    
-                    p1.extend(
-                        [
-                            ax - c1_vec[0],
-                            c1_vec[1] - ax,
-                            ay - c1_vec[2],
-                            c1_vec[3] - ay,
-                        ])
-
         # Final joint state is a convex combination of the smapled dataset
-        if LearnedData is not None:
-            p1.append(1.0 - ai_xf)
-            p1.append(ai_xf)
+        if Terminal_Safe_Set is not None:
+            if Terminal_Safe_Set.state.shape[0] > 1:
+                p1.append(1.0 - ai_xf)
+                p1.append(ai_xf)
 
         p1_ph = ca.vertcat(*p1)
         lambda_1 = ca.SX.sym("lambda_1", p1_ph.shape[0])
@@ -358,9 +354,16 @@ class DGSolver:
                 h.append(x2[k, :].T - A2 @ x2[k-1, :].T - B2 @ u2[k-1, :].T)
             n_mu += h[-1].shape[0]
             
+        if u2_0 is not None:
+            h.append(u2[0,:].T - u2_0.reshape(-1,1))
+            n_mu += h[-1].shape[0]
+            
         # The final state must be a convex combination of the sampled dataset
-        if LearnedData is not None:
-            h.append(ca.mtimes(LearnedData.AnalyzedData.state.T[self.game.nx1:,:], ai_xf) - x2[self.N,:].T)
+        if Terminal_Safe_Set is not None:
+            if Terminal_Safe_Set.state.shape[0] > 1:
+                h.append(ca.mtimes(Terminal_Safe_Set.state.T[self.game.nx1:,:], ai_xf) - x2[self.N,:].T)
+            else:
+                h.append(Terminal_Safe_Set.state.T[self.game.nx1:,:] - x2[self.N,:].T)
             n_mu += h[-1].shape[0]
 
         mu2 = ca.SX.sym('mu_2', n_mu)
@@ -432,6 +435,8 @@ class DGSolver:
                 f_val_k = self.game.f_shared(ca.horzcat(x1[k,:], x2[k,:]), u1[k,:], u2[k,:])
             else:
                 f_val_k = self.game.f_shared(ca.horzcat(x1[k,:], x2[k,:]), np.zeros_like(u1[0,:].shape), np.zeros_like(u2[0,:].shape))
+            if not isinstance(f_val_k, list):
+                f_val_k = [f_val_k]
             if len(f_val_k)>0:
                 for f_k in f_val_k:
                     if is_symbolic_expr(f_k): 
@@ -490,11 +495,11 @@ class DGSolver:
         self.solver.params["private_constraint_multipliers"] = lambda_vec
         self.solver.params["shared_constraints"] = sg_vec
         self.solver.params["shared_constraint_multipliers"] = sigma_vec
-        self.solver.params["lagrangians"] = [ca.Function('L1',[Z, x1_0, x2_0, alpha_vec, c1_vec],[L1]), ca.Function('L1',[Z, x1_0, x2_0, alpha_vec, c1_vec],[L1])]
+        self.solver.params["lagrangians"] = [ca.Function('L1',[Z, x1_0, x2_0, alpha_vec],[L1]), ca.Function('L1',[Z, x1_0, x2_0, alpha_vec],[L1])]
         self.solver.Z = Z
         self.solver.Z_len = Z_len
-        self.solver.F = ca.Function('F', [Z, x1_0, x2_0, alpha_vec, c1_vec], [F])
-        self.solver.J = ca.Function('J', [Z, x1_0, x2_0, alpha_vec, c1_vec], [J])
+        self.solver.F = ca.Function('F', [Z, x1_0, x2_0, alpha_vec], [F])
+        self.solver.J = ca.Function('J', [Z, x1_0, x2_0, alpha_vec], [J])
         self.solver.n_l_inf = sum(Z_len[0]) + sum(Z_len[1]) + Z_len[2]
         self.solver.n_u_inf = self.solver.n_l_inf + int(np.sum(Z_len[3:]))
 
@@ -553,7 +558,8 @@ class DGSolver:
         for sample_index in candidate_indices:
             candidate_data = copy.deepcopy(self.LearnedData)
             candidate = candidate_data.AnalyzedData
-            for field in ("t", "c", "state", "Cost2Go"):
+            # for field in ("t", "c", "state", "Cost2Go"):
+            for field in ("t", "state", "Cost2Go", "u2"):
                 values = np.asarray(getattr(analyzed, field))
                 setattr(candidate, field, values[[sample_index]])
             candidate.n_data = 1
@@ -654,11 +660,8 @@ class DGSolver:
 
         self.Solution = best_solution
         if best_solver is None:
-            best_solver = self.build_solver(
-                LearnedData=candidate_data_by_index[
-                    best_solution.terminal_sample_index
-                ]
-            )
+            best_solver = self.build_solver(u2_0=None, 
+                Terminal_Safe_Set=candidate_data_by_index[best_solution.terminal_sample_index].AnalyzedData)
         self.Solver = best_solver
         self.last_solve_success = True
         return np.concatenate((best_solution.u1[0], best_solution.u2[0]))
@@ -674,7 +677,7 @@ class DGSolver:
         cost_to_go = np.asarray(
             learned_data.AnalyzedData.Cost2Go, dtype=float
         ).reshape(-1)
-        weights = np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1)
+        weights = np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1) if solution.ai_xf_vec.shape[0]>1 else np.asarray(1, dtype=float).reshape(-1)
         return cost + float(cost_to_go @ weights)
 
     def _step_once(
@@ -704,18 +707,26 @@ class DGSolver:
             a_set, proximity_factor = precomputed_a_set
         else:
             a_set, proximity_factor = self.calc_a_set(x0)
+        
+        if abs(np.sum(a_set)-1.0)< 1e-5:
+            # c1_vec = a_set @ self.LearnedData.AnalyzedData.c
+            u2_Learned = a_set @ self.LearnedData.AnalyzedData.u2
+        else:
+            # c1_vec = np.array([-10+self.game.u_min, 10+self.game.u_max, -10+self.game.u_min, 10+self.game.u_max,])
+            u2_Learned = None
+        
         alpha_vec = self.alpha_vec
         if forced_alpha is not None:
             alpha_vec = forced_alpha * np.ones_like(self.alpha_vec)
         elif self.LearnedData is not None:
             alpha_vec[0] = np.clip(1.0-proximity_factor, 0.1, 1.0)
         
-        if not self.is_built and self.LearnedData is None:
-            self.Solver = self.build_solver(LearnedData=self.LearnedData)
+        if not self.is_built and self.LearnedData is None and u2_Learned is None:
+            self.Solver = self.build_solver(u2_0 = None, Terminal_Safe_Set=None)
         if terminal_learned_data is not None:
             LearnedData1 = terminal_learned_data
             if terminal_solver is None:
-                self.Solver = self.build_solver(LearnedData=LearnedData1)
+                self.Solver = self.build_solver(u2_0 = u2_Learned, Terminal_Safe_Set=LearnedData1.AnalyzedData)
             else:
                 self.Solver = terminal_solver
         elif self.LearnedData is not None:
@@ -724,18 +735,14 @@ class DGSolver:
                                     (np.array(LearnedData1.AnalyzedData.t) <= t + (1.25 * self.N) * self.dt))[0]
             if future.size > 0:
                 LearnedData1.AnalyzedData.t = np.array(LearnedData1.AnalyzedData.t)[future]
-                LearnedData1.AnalyzedData.c = np.array(LearnedData1.AnalyzedData.c)[future]
+                # LearnedData1.AnalyzedData.c = np.array(LearnedData1.AnalyzedData.c)[future]
                 LearnedData1.AnalyzedData.state = np.array(LearnedData1.AnalyzedData.state)[future]
                 LearnedData1.AnalyzedData.Cost2Go = np.array(LearnedData1.AnalyzedData.Cost2Go)[future]
                 LearnedData1.AnalyzedData.n_data = LearnedData1.AnalyzedData.t.shape[0]
             else:
                 LearnedData1 = None
-            self.Solver = self.build_solver(LearnedData=LearnedData1)
+            self.Solver = self.build_solver(u2_0 = u2_Learned, Terminal_Safe_Set=LearnedData1.AnalyzedData)
         
-        if abs(np.sum(a_set)-1.0)< 1e-5:
-            c1_vec = a_set @ self.LearnedData.AnalyzedData.c
-        else:
-            c1_vec = np.array([-10+self.game.u_min, 10+self.game.u_max, -10+self.game.u_min, 10+self.game.u_max,])
 
         _ensure_julia()
                     
@@ -798,8 +805,8 @@ class DGSolver:
         Main.ub = np.inf*np.ones(self.Solver.n_u_inf)
         Main.lb = np.concatenate((-np.inf*np.ones(self.Solver.n_l_inf), np.zeros(self.Solver.n_u_inf-self.Solver.n_l_inf)))
         Main.nnz = self.Solver.J.numel_out(0)
-        Main.F_py = lambda z: np.array(self.Solver.F(z, x1_0, x2_0, alpha_vec, c1_vec)).squeeze()
-        Main.J_py = lambda z: np.array(self.Solver.J(z, x1_0, x2_0, alpha_vec, c1_vec))
+        Main.F_py = lambda z: np.array(self.Solver.F(z, x1_0, x2_0, alpha_vec)).squeeze()
+        Main.J_py = lambda z: np.array(self.Solver.J(z, x1_0, x2_0, alpha_vec))
         
         Main.tol = self.p_tol
 
