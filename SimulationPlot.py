@@ -173,7 +173,7 @@ def plot_simulation_init(game):
             [], [], "C2-", linewidth=2, label="velocity RSS"
         )
         ax_velocity.axhline(
-            game.vx_max, color="C4", linestyle=":", linewidth=2,
+            np.sqrt(game.vx_max**2 + game.vy_max**2), color="C4", linestyle=":", linewidth=2,
             label="RSS maximum",
         )
         ax_velocity.set_xlabel("time")

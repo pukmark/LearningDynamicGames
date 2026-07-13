@@ -292,7 +292,7 @@ class GameDynamics:
                 + velocity_gain * velocity_error
             )
             
-            if np.linalg.norm(self.x[2:4])**2 + np.linalg.norm(self.x[self.nx1 + 2:self.nx1 + 4])**2 > self.vx_max**2-1.0:
+            if np.linalg.norm(self.x[2:4])**2 + np.linalg.norm(self.x[self.nx1 + 2:self.nx1 + 4])**2 > self.vx_max**2-3.0:
                 control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
                 if np.dot(control, self.x[2:4]) > 0:
                     control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2

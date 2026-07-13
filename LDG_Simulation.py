@@ -21,7 +21,7 @@ np.random.seed(100)
 L = 5.0
 W = 4.0
 dt = 0.1
-tf = 7.0
+tf = 10.0
 dynamics_type = 2  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 Niterations = 30
@@ -124,6 +124,9 @@ if __name__ == '__main__':
             LearnedData.RawData[iter].arrival_time_difference = np.nan
 
         append_terminal_learned_state(LearnedData, Game, iter)
+        
+        if iter > 1:
+            alpha1 = max(0.0, alpha1-0.05)
 
         rebuild_analyzed_data(
             LearnedData,

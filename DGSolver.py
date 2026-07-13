@@ -160,7 +160,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, x1f, x2f, 
-                       dt=0.1, horizon=5, 
+                       dt=0.1, horizon=10, 
                        alpha=0.5,
                        R1 = 0.04,
                        R2 = 0.04,
@@ -188,17 +188,14 @@ class DGSolver:
                 "terminal_constraint_mode must be 'convex_hull' or 'sampled_points'"
             )
         self.constraint_mode = constraint_mode
-        if self.LearnedData is None:
-            self.alpha_vec = alpha * np.ones((self.N+1,1))
-        else:
-            self.alpha_vec = np.ones((self.N+1,1))
+        self.alpha_vec = alpha * np.ones((self.N+1,1))
         self.max_workers = max_workers
         self.options = options.copy() if options is not None else {}
         self.solver = None
         self.is_built = False
         self._sampled_solver_cache = {}
         
-        self.Qk = np.diag([1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 0.2, 0.2])
+        self.Qk = np.diag([1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 0.1, 0.1])
         self.R1 = R1
         self.R2 = R2
         self.p_tol = p_tol
@@ -218,9 +215,9 @@ class DGSolver:
 
 
 
-        self.proximity_Q = np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
-        self.small_dx = 1/self.game.nx*np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else 1/self.game.nx*np.array([1e-3, 1e-3, 1e-3, 1e-3, 1e-4, 1e-4, 1e-4, 1e-4])
-        self.large_dx = 1/self.game.nx*np.array([2e-1, 2e-1, 2e-1, 2e-1]) if self.game.is_single_integrator else 1/self.game.nx*np.array([2e-1, 2e-1, 2e-1, 2e-1, 2e-2, 2e-2, 2e-2, 2e-2])
+        self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
+        self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
+        self.large_dx = 20 * self.small_dx
         self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
         self.proximity_maxval = np.array(ca.bilin(self.proximity_Q, self.large_dx)).flatten()[0]
         
@@ -450,7 +447,7 @@ class DGSolver:
                 f_val_k = self.game.f_shared(ca.horzcat(x1[k,:], x2[k,:]), u1[k,:], u2[k,:])
             else:
                 f_val_k = self.game.f_shared(ca.horzcat(x1[k,:], x2[k,:]), np.zeros_like(u1[0,:].shape), np.zeros_like(u2[0,:].shape))
-            if not isinstance(f_val_k, list):
+            if not isinstance(f_val_k, tuple):
                 f_val_k = [f_val_k]
             if len(f_val_k)>0:
                 for f_k in f_val_k:
@@ -561,7 +558,7 @@ class DGSolver:
         candidate_indices = np.where(
             (sample_times > t)
             & (sample_times > previous_sample_time-2*self.dt)
-            & (sample_times <= t + (1.5 * self.N) * self.dt)
+            & (sample_times <= t + (3.0 * self.N) * self.dt)
         )[0]
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
@@ -960,6 +957,12 @@ class DGSolver:
         u = np.concatenate((self.Solution.u1[self.Solution.indx], self.Solution.u2[self.Solution.indx]))
 
         return u
+
+    def update_alpha_vec(self, new_alpha):
+        """Update the alpha vector used for shared constraints."""
+        if new_alpha < 0.0 or new_alpha > 1.0:
+            raise ValueError("new_alpha must be in [0, 1]")
+        self.alpha_vec = new_alpha * np.ones_like(self.alpha_vec)
 
     def affine_lstsq_weights(self, Sx, x0, reg=1e-10):
         """
