@@ -46,7 +46,6 @@ def init_analyzed_data():
     analyzed_data = SimpleNamespace()
     analyzed_data.t = []
     analyzed_data.state = []
-    # analyzed_data.c = []
     analyzed_data.u2 = []
     analyzed_data.Cost2Go = []
     analyzed_data.n_data = 0
@@ -121,10 +120,6 @@ def rebuild_analyzed_data(
             analyzed_data.t.append(t)
             analyzed_data.state.append(state)
 
-            cx_max = game.u_max_shared - u[2]
-            cx_min = game.u_min_shared - u[2]
-            cy_max = game.u_max_shared - u[3]
-            cy_min = game.u_min_shared - u[3]
             # analyzed_data.c.append(np.array([cx_min, cx_max, cy_min, cy_max]))
             analyzed_data.Cost2Go.append(p1_cost_to_go)
             analyzed_data.u2.append(u[2:4])

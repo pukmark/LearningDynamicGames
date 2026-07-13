@@ -82,18 +82,17 @@ def plot_simulation_init(game):
     plot_rows = 5 if game.is_single_integrator else 6
     fig = plt.figure(figsize=(13, 13 if game.is_single_integrator else 15))
     gs = fig.add_gridspec(plot_rows, 2, width_ratios=(2.0, 1.0))
-    ax_xy = fig.add_subplot(gs[:, 0])
+    ax_xy = fig.add_subplot(gs[:-1, 0])
     ax_xpos = fig.add_subplot(gs[0, 1])
     ax_ypos = fig.add_subplot(gs[1, 1])
     ax_u = fig.add_subplot(gs[2, 1])
+    ax_cost = fig.add_subplot(gs[-1, :])
     if game.is_single_integrator:
         ax_velocity = None
-        ax_cost = fig.add_subplot(gs[3, 1])
-        ax_arrival = fig.add_subplot(gs[4, 1])
+        ax_arrival = fig.add_subplot(gs[3, 1])
     else:
         ax_velocity = fig.add_subplot(gs[3, 1])
-        ax_cost = fig.add_subplot(gs[4, 1])
-        ax_arrival = fig.add_subplot(gs[5, 1])
+        ax_arrival = fig.add_subplot(gs[4, 1])
 
     lines = {}
     lines["p1_state"], = ax_xy.plot([], [], "C0-", label="P1 state")

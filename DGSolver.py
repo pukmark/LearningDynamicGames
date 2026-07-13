@@ -202,24 +202,26 @@ class DGSolver:
         self.verbose = verbose
         self.nms = True
         
+        self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
+        self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
+        self.large_dx = 20 * self.small_dx
+        self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
+        self.proximity_maxval = np.array(ca.bilin(self.proximity_Q, self.large_dx)).flatten()[0]
+        
         x1 = ca.SX.sym('x1', self.game.nx1)
         x2 = ca.SX.sym('x2', self.game.nx2)
         u1 = ca.SX.sym('u1', self.game.nu1)
         u2 = ca.SX.sym('u2', self.game.nu2)
 
-        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) < 0.05, 0.0, 1.0)
-        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) < 0.05, 0.0, 1.0)
+        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) <= self.proximity_minval, 0.0, 1.0)
+        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) <= self.proximity_minval, 0.0, 1.0)
         
         self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
         self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
 
 
 
-        self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
-        self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
-        self.large_dx = 20 * self.small_dx
-        self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
-        self.proximity_maxval = np.array(ca.bilin(self.proximity_Q, self.large_dx)).flatten()[0]
+
         
         self.Solution = SimpleNamespace()
         self.Solution.success = False
@@ -558,7 +560,7 @@ class DGSolver:
         candidate_indices = np.where(
             (sample_times > t)
             & (sample_times > previous_sample_time-2*self.dt)
-            & (sample_times <= t + (3.0 * self.N) * self.dt)
+            & (sample_times <= t + (2.0 * self.N) * self.dt)
         )[0]
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
