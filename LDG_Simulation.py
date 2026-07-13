@@ -24,8 +24,8 @@ dt = 0.1
 tf = 10.0
 dynamics_type = 2  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 30
-arrival_tolerance = 0.1
+Niterations = 40
+arrival_tolerance = 0.05
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-2.0, 1.5, dynamics_type=dynamics_type)])
@@ -125,8 +125,8 @@ if __name__ == '__main__':
 
         append_terminal_learned_state(LearnedData, Game, iter)
         
-        if iter > 1:
-            alpha1 = max(0.0, alpha1-0.05)
+        # if iter > 1:
+        #     alpha1 = max(0.0, alpha1-0.05)
 
         rebuild_analyzed_data(
             LearnedData,
