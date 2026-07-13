@@ -159,7 +159,7 @@ def _solve_sampled_terminal_candidate(
 class DGSolver:
     """Basic structure for a dynamic game solver."""
 
-    def __init__(self, game: GameDynamics, xf, 
+    def __init__(self, game: GameDynamics, x1f, x2f, 
                        dt=0.1, horizon=5, 
                        alpha=0.5,
                        R1 = 0.04,
@@ -174,7 +174,8 @@ class DGSolver:
             raise ValueError("horizon must be positive")
 
         self.game = game
-        self.xf = xf
+        self.x1f = x1f
+        self.x2f = x2f
         self.N = int(horizon)
         self.dt = float(dt)
         if LearnedData is None or LearnedData.AnalyzedData.n_data == 0:
@@ -209,11 +210,11 @@ class DGSolver:
         u1 = ca.SX.sym('u1', self.game.nu1)
         u2 = ca.SX.sym('u2', self.game.nu2)
 
-        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.xf.T) < 0.05, 0.0, 1.0)
-        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.xf.T) < 0.05, 0.0, 1.0)
+        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) < 0.05, 0.0, 1.0)
+        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) < 0.05, 0.0, 1.0)
         
-        self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.xf.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
-        self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.xf.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
+        self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
+        self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
 
 
 
@@ -683,7 +684,7 @@ class DGSolver:
     def _player1_cost(self, solution, learned_data):
         """Evaluate the primal player-1 objective used to rank terminal samples."""
         cost = 0.0
-        target = np.asarray(self.xf, dtype=float).reshape(-1)
+        target = np.asarray(self.x1f, dtype=float).reshape(-1)
         for k in range(self.N):
             cost += float(self.l1(solution.x1[k], solution.u1[k]))
         cost_to_go = np.asarray(learned_data.AnalyzedData.Cost2Go, dtype=float).reshape(-1)

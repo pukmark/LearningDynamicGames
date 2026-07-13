@@ -102,7 +102,8 @@ def plot_simulation_init(game):
     lines["p2_current"], = ax_xy.plot([], [], "C1o")
     lines["p1_prediction"], = ax_xy.plot([], [], "C0--", alpha=0.8, label="P1 prediction")
     lines["p2_prediction"], = ax_xy.plot([], [], "C1--", alpha=0.8, label="P2 prediction")
-    lines["Target"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target", linewidth=3)
+    lines["Target1"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 1", linewidth=3)
+    lines["Target2"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 2", linewidth=3)
     ax_xy.axhline(game.y_min, color="0.75", linewidth=0.8)
     ax_xy.axhline(game.y_max, color="0.75", linewidth=0.8)
     ax_xy.set_xlim(game.x_min-eps, game.x_max+eps)
@@ -199,6 +200,9 @@ def plot_simulation_init(game):
     lines["p2_arrival_time"], = ax_arrival.plot(
         [], [], "C1o-", label="P2 arrival time"
     )
+    lines["target_arrival_time"], = ax_arrival.plot(
+        [], [], "C2o-", label="Target arrival time"
+    )
     ax_arrival.axhline(0.0, color="0.4", linestyle=":", linewidth=1)
     ax_arrival.set_xlabel("completed iteration")
     ax_arrival.set_ylabel("arrival time")
@@ -282,9 +286,10 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     lines["y_joint_state"].set_data(x[:, 1], x[:, p2_i + 1])
     lines["y_joint_current"].set_data([x[-1, 1]], [x[-1, p2_i + 1]])
 
-    target_position = np.asarray(game.xf, dtype=float).reshape(-1)[:2]
-    joint_x_target = np.array([[target_position[0], target_position[0]]])
-    joint_y_target = np.array([[target_position[1], target_position[1]]])
+    target1_position = np.asarray(game.x1f, dtype=float).reshape(-1)[:2]
+    target2_position = np.asarray(game.x2f, dtype=float).reshape(-1)[:2]
+    joint_x_target = np.array([[target1_position[0], target2_position[0]]])
+    joint_y_target = np.array([[target1_position[1], target2_position[1]]])
     lines["x_joint_target"].set_data(joint_x_target[:, 0], joint_x_target[:, 1])
     lines["y_joint_target"].set_data(joint_y_target[:, 0], joint_y_target[:, 1])
 
@@ -421,7 +426,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     else:
         lines["p1_prediction"].set_data([], [])
         lines["p2_prediction"].set_data([], [])
-    lines["Target"].set_data([game.xf[0,0]],[game.xf[0,1]])
+    lines["Target1"].set_data([game.x1f[0,0]],[game.x1f[0,1]])
+    lines["Target2"].set_data([game.x2f[0,0]],[game.x2f[0,1]])
 
     valid_u = np.isfinite(u).all(axis=1)
     if np.any(valid_u):

@@ -17,7 +17,8 @@ class GameDynamics:
         self,
         dt,
         x0,
-        xf,
+        x1f,
+        x2f,
         u_min=-2,
         u_max=2,
         L=20.0,
@@ -70,8 +71,9 @@ class GameDynamics:
         self.d_sep = d_sep
                 
         self.x0 = x0
-        self.xf = xf
-        
+        self.x1f = x1f
+        self.x2f = x2f
+
         # Define shared constranits function:
         x_sym = ca.SX.sym('x_sym', self.nx)
         u1_sym = ca.SX.sym('u1_sym', self.nu1)
@@ -84,7 +86,7 @@ class GameDynamics:
         else:
             v1_sym = x_sym[2:4]
             v2_sym = x_sym[self.nx1+2:self.nx1+4]
-        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [self.vx_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym)])
+        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [self.vy_max**2+self.vx_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2])
 
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
         # or [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y] for double-integrator mode.
@@ -242,8 +244,8 @@ class GameDynamics:
                 return self.VELOCITY_OUTSIDE_BOUNDS
         
         f_shared = self.f_shared(self.x, self.u[:self.nu1], self.u[self.nu2:])
-        if not isinstance(f_shared, list):
-            f_shared = [f_shared]
+        if not isinstance(f_shared, tuple):
+            f_shared = (f_shared,)
         for f in f_shared:
             if f < -self.eps:
                 return self.SHARED_CONSTRAINT_VIOLATED
@@ -259,7 +261,7 @@ class GameDynamics:
         self.reset_history()
         self.iteration += 1
 
-    def SimpleController(self, xf, position_gain=1.5, velocity_gain=2.0):
+    def SimpleController(self, position_gain=1.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 1.
 
         The single-integrator controller commands velocity proportional to the
@@ -267,11 +269,18 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        target = np.asarray(xf, dtype=float).reshape(-1)
+        target = np.asarray(self.x1f, dtype=float).reshape(-1)
         if target.shape != (self.nx1,):
             raise ValueError(
-                f"xf must contain one player state with shape ({self.nx1},)"
+                f"x1f must contain one player state with shape ({self.nx1},)"
             )
+
+        # add damp if too close to player 2:
+        dist = np.linalg.norm(self.x[:2] - self.x[self.nx1:self.nx1 + 2])
+        if dist < self.d_sep*2:
+            velocity_gain = 2 * velocity_gain
+        if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < self.d_sep*2:
+            position_gain = 4 * position_gain
 
         position_error = target[:2] - self.x[:2]
         if self.is_single_integrator:
@@ -285,46 +294,12 @@ class GameDynamics:
             
             if np.linalg.norm(self.x[2:4])**2 + np.linalg.norm(self.x[self.nx1 + 2:self.nx1 + 4])**2 > self.vx_max**2-1.0:
                 control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
+                if np.dot(control, self.x[2:4]) > 0:
+                    control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
+                
+            if np.linalg.norm(self.x[2:4]) > max_velocity and np.dot(control, self.x[2:4]) > 0:
+                control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
 
         u_min = self._as_bounds(self.u_min, self.nu, "u_min")[:self.nu1]
         u_max = self._as_bounds(self.u_max, self.nu, "u_max")[:self.nu1]
         return np.clip(control, u_min, u_max)
-
-    def enforce_shared_constraint(self, u):
-        """Return the closest scaled joint input that is safe next step.
-
-        The shared constraint limits the root-sum-square speed of both
-        players. For double-integrator dynamics, scaling both accelerations
-        along the requested direction keeps the input bounds intact and
-        selects the largest feasible scale factor.
-        """
-        u = np.asarray(u, dtype=float)
-        if u.shape != (self.nu,):
-            raise ValueError(f"u must have shape ({self.nu},)")
-
-        speed_limit = float(self.vx_max)
-        if self.is_single_integrator:
-            speed = np.linalg.norm(u)
-            if speed <= speed_limit:
-                return u.copy()
-            return u * (speed_limit / speed)
-
-        velocity = np.concatenate((self.x[2:4], self.x[self.nx1 + 2:self.nx1 + 4]))
-        if np.linalg.norm(velocity) > speed_limit + self.eps:
-            raise ValueError("current state already violates the shared constraint")
-
-        requested_velocity = velocity + self.dt * u
-        if np.linalg.norm(requested_velocity) <= speed_limit:
-            return u.copy()
-
-        # Feasibility along velocity + scale * dt * u is monotone at the
-        # boundary connected to the currently feasible velocity (scale=0).
-        low, high = 0.0, 1.0
-        for _ in range(50):
-            scale = 0.5 * (low + high)
-            candidate_velocity = velocity + scale * self.dt * u
-            if np.linalg.norm(candidate_velocity) <= speed_limit:
-                low = scale
-            else:
-                high = scale
-        return low * u

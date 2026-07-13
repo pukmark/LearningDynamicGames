@@ -27,7 +27,8 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 Niterations = 30
 arrival_tolerance = 0.1
 learned_data_path = "LearnedData.pkl"
-xf = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
+x1f = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
+x2f = np.array([player_state(-2.0, 1.5, dynamics_type=dynamics_type)])
 max_workers = max(1, int(os.cpu_count() * 0.20))
 # max_workers = 1
         
@@ -36,16 +37,16 @@ if __name__ == '__main__':
     
     x0 = np.array(
         player_state(0.5-L/2, 0.5, dynamics_type=dynamics_type)
-        + player_state(0.5-L/2, -1.5, dynamics_type=dynamics_type)
+        + player_state(L/2-0.5, -1., dynamics_type=dynamics_type)
     )
     alpha1, alpha2 = 1.0, 0.46
     
-    Game = GameDynamics(dt, x0, xf, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
+    Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
     LearnedData = init_learned_data()
     # To reuse saved data instead: LearnedData = load_learned_data(learned_data_path)
     # LearnedData = load_learned_data(learned_data_path)
     
-    Solver2 = DGSolver(Game, xf=xf, alpha=alpha2)
+    Solver2 = DGSolver(Game, x1f=x1f, x2f=x2f, alpha=alpha2)
     plot_simulation_init(Game)
 
     # Start Julia/PATHSolver once for this simulation execution. The main
@@ -54,11 +55,11 @@ if __name__ == '__main__':
 
     for iter in range(Game.Max_Iterations):
         Game.reset_game()
-        Solver1 = DGSolver(Game, xf=xf, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
+        Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
         EndGame = False
         while not EndGame:
             if iter == 0:
-                u1 = Game.SimpleController(xf)
+                u1 = Game.SimpleController()
                 Solver2.Solution.success = False
             else:
                 # Player 1 Controller
@@ -81,14 +82,12 @@ if __name__ == '__main__':
                 u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
             if not Solver2.Solution.success:
                 u2 = Solver2.step(Game.t, Game.x)
-            if not Solver2.Solution.success:
+            if not Solver2.Solution.success and iter > 0:
                 u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
                 u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
                 u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0)
         
             u = np.concatenate((u1[0:2], u2[2:]))
-            # if iter == 0:
-            #     u = Game.enforce_shared_constraint(u)
             GameFlag = Game.step(u=u)
             plot_simulation(Game, Solver1, Solver2, LearnedData)
             
@@ -96,10 +95,11 @@ if __name__ == '__main__':
             if GameFlag != Game.STEP_OK:
                 print("Infeasible Step - Stopping Iteration")
 
-            target_position = np.asarray(xf, dtype=float).reshape(-1)[:2]
-            player1_distance = np.linalg.norm(Game.x[:2] - target_position)
+            target1_position = np.asarray(x1f, dtype=float).reshape(-1)[:2]
+            player1_distance = np.linalg.norm(Game.x[:2] - target1_position)
+            target2_position = np.asarray(x2f, dtype=float).reshape(-1)[:2]
             player2_distance = np.linalg.norm(
-                Game.x[Game.nx1:Game.nx1 + 2] - target_position
+                Game.x[Game.nx1:Game.nx1 + 2] - target2_position
             )
 
             if Game.t >= tf: EndGame = True
@@ -114,37 +114,22 @@ if __name__ == '__main__':
                    f"Player 1 Dist: {player1_distance:2.2}, "
                    f"Player 2 Dist: {player2_distance:2.2}" )
         
-        (
-            LearnedData.RawData[iter].p1_arrival_time,
-            LearnedData.RawData[iter].p2_arrival_time,
-        ) = arrival_times(
-            Game.get_history(),
-            0.0,
-            xf,
-            Game.nx1,
-            arrival_tolerance,
-        )
-        if (
-            np.isfinite(LearnedData.RawData[iter].p1_arrival_time)
-            and np.isfinite(LearnedData.RawData[iter].p2_arrival_time)
-        ):
+        (LearnedData.RawData[iter].p1_arrival_time, LearnedData.RawData[iter].p2_arrival_time) = arrival_times(Game.get_history(), 0.0, x1f, x2f, Game.nx1, arrival_tolerance,)
+        if (np.isfinite(LearnedData.RawData[iter].p1_arrival_time)
+            and np.isfinite(LearnedData.RawData[iter].p2_arrival_time)):
             LearnedData.RawData[iter].arrival_time_difference = (
                 LearnedData.RawData[iter].p1_arrival_time
-                - LearnedData.RawData[iter].p2_arrival_time
-            )
+                - LearnedData.RawData[iter].p2_arrival_time)
         else:
             LearnedData.RawData[iter].arrival_time_difference = np.nan
 
-        append_terminal_learned_state(LearnedData, Game, iter, xf)
+        append_terminal_learned_state(LearnedData, Game, iter)
 
         rebuild_analyzed_data(
             LearnedData,
             iter,
             Game,
-            Solver1,
-            xf,
-            arrival_tolerance,
-        )
+            Solver1,)
         
         Solver2.Solution.success = False
 
