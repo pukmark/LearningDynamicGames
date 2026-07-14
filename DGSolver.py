@@ -556,14 +556,14 @@ class DGSolver:
         Cost2Go = np.asarray(analyzed.Cost2Go)
         sample_times = np.asarray(analyzed.t)
         previous_solution = copy.deepcopy(self.Solution)
-        prev_cost1 = previous_solution.player1_cost if previous_solution.success else np.inf
+        prev_cost2go = Cost2Go[previous_solution.terminal_sample_index] if previous_solution.success else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         candidate_indices = np.where(
             (sample_times > t)
             & (sample_times > previous_sample_time-2*self.dt)
             & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
-            & (Cost2Go <= prev_cost1)
+            & (Cost2Go <= prev_cost2go)
         )[0]
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
