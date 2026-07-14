@@ -537,18 +537,18 @@ class DGSolver:
         )
         return A, B
 
-    def step(self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False):
+    def step(self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False):
         """Solve one step using the configured learned terminal-state mode."""
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
-                t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
+                t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution, use_all_terminal_points=use_all_terminal_points
             )
         return self._step_once(
             t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
         )
 
     def _step_over_sampled_terminal_states(
-        self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False
+        self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False
     ):
         """Enumerate learned terminal points and keep the lowest-cost P1 solution."""
         analyzed = self.LearnedData.AnalyzedData
@@ -559,12 +559,15 @@ class DGSolver:
         prev_cost2go = Cost2Go[previous_solution.terminal_sample_index] if previous_solution.success else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
-        candidate_indices = np.where(
-            (sample_times > t)
-            & (sample_times > previous_sample_time-2*self.dt)
-            & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
-            & (Cost2Go <= prev_cost2go)
-        )[0]
+        if not use_all_terminal_points:
+            candidate_indices = np.where(
+                (sample_times > t)
+                & (sample_times > previous_sample_time-2*self.dt)
+                & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
+                & (Cost2Go <= prev_cost2go)
+            )[0]
+        else:
+            candidate_indices = np.where( (sample_times >= t-2*self.dt) )[0]
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
         previous_solver = getattr(self, "Solver", None)
