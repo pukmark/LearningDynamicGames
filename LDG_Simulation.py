@@ -66,20 +66,20 @@ if __name__ == '__main__':
                 # Player 1 Controller
                 u1 = Solver1.step(Game.t, Game.x)
                 
-                if not Solver1.Solution.success:
+                if not Solver1.Solution.success and Solver1.Solution.indx < int(0.5 * Solver1.N):
                     u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
-                if not Solver1.Solution.success:
-                    u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
-                    u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
-                    u1 = Solver1.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0)
-                if not Solver1.Solution.success:
-                    for alpha in [0.9, 0.8, 0.7]:
-                        try:
-                            u1 = Solver1.step(Game.t, Game.x, forced_alpha=alpha)
-                            if Solver1.Solution.success: break
-                        except:
-                            pass
+                    if not Solver1.Solution.success:
+                        u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
+                        u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
+                        u1 = Solver1.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0)
+                    if not Solver1.Solution.success:
+                        for alpha in [0.9, 0.8, 0.7]:
+                            try:
+                                u1 = Solver1.step(Game.t, Game.x, forced_alpha=alpha)
+                                if Solver1.Solution.success: break
+                            except:
+                                pass
                                 
             # # Player 2 Controller
             if Solver1.Solution.success and iter > 0:
