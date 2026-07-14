@@ -567,7 +567,7 @@ class DGSolver:
                 & (Cost2Go <= prev_cost2go)
             )[0]
         else:
-            candidate_indices = np.where( (sample_times >= t-2*self.dt) )[0]
+            candidate_indices = np.where( (sample_times >= t-self.N*self.dt) )[0]
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
         previous_solver = getattr(self, "Solver", None)
