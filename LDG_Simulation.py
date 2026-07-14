@@ -65,6 +65,9 @@ if __name__ == '__main__':
             else:
                 # Player 1 Controller
                 u1 = Solver1.step(Game.t, Game.x)
+                
+                if not Solver1.Solution.success:
+                    u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
                 if not Solver1.Solution.success:
                     u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
