@@ -537,30 +537,33 @@ class DGSolver:
         )
         return A, B
 
-    def step(self, t, x0, forced_alpha=None, u1_0=None, u2_0=None):
+    def step(self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False):
         """Solve one step using the configured learned terminal-state mode."""
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
-                t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0
+                t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
             )
         return self._step_once(
-            t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0
+            t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
         )
 
     def _step_over_sampled_terminal_states(
-        self, t, x0, forced_alpha=None, u1_0=None, u2_0=None
+        self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False
     ):
         """Enumerate learned terminal points and keep the lowest-cost P1 solution."""
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
+        Cost2Go = np.asarray(analyzed.Cost2Go)
         sample_times = np.asarray(analyzed.t)
         previous_solution = copy.deepcopy(self.Solution)
+        prev_cost1 = previous_solution.player1_cost if previous_solution.success else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
-        previous_sample_time = getattr(previous_solution, "terminal_sample_time", -np.inf)
+        previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         candidate_indices = np.where(
             (sample_times > t)
             & (sample_times > previous_sample_time-2*self.dt)
-            & (sample_times <= t + (2.0 * self.N) * self.dt)
+            & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
+            & (Cost2Go <= prev_cost1)
         )[0]
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
@@ -590,6 +593,7 @@ class DGSolver:
                     forced_alpha=forced_alpha,
                     u1_0=u1_0,
                     u2_0=u2_0,
+                    last_attempted_solution=last_attempted_solution,
                     terminal_learned_data=candidate_data,
                     terminal_solver=candidate_solver,
                     precomputed_a_set=(a_set, proximity_factor),
@@ -697,6 +701,7 @@ class DGSolver:
         forced_alpha=None,
         u1_0=None,
         u2_0=None,
+        last_attempted_solution=False,
         terminal_learned_data=None,
         terminal_solver=None,
         precomputed_a_set=None,
@@ -949,9 +954,10 @@ class DGSolver:
             self.Solution.a_set = a_set
             self.Solution.x0 = x0
             self.Solution.indx = 0
-        elif u1_0 is None and hasattr(self.Solution, "indx"):
+        elif hasattr(self.Solution, "indx"):
             self.Solution.success = bool(success)
-            self.Solution.indx = min(self.Solution.indx + 1, self.N - 1)
+            if last_attempted_solution:
+                self.Solution.indx = min(self.Solution.indx + 1, self.N - 1)
 
         if not hasattr(self.Solution, "u1") or not hasattr(self.Solution, "u2"):
             return np.zeros(self.game.nu)

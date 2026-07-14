@@ -1,6 +1,7 @@
 import os
 os.system('clear')
 import numpy as np
+import casadi as ca
 
 from Game import GameDynamics
 from DGSolver import DGSolver, initialize_pathsolver_runtime
@@ -95,22 +96,14 @@ if __name__ == '__main__':
             if GameFlag != Game.STEP_OK:
                 print("Infeasible Step - Stopping Iteration")
 
-            target1_position = np.asarray(x1f, dtype=float).reshape(-1)[:2]
-            player1_distance = np.linalg.norm(Game.x[:2] - target1_position)
-            target2_position = np.asarray(x2f, dtype=float).reshape(-1)[:2]
-            player2_distance = np.linalg.norm(
-                Game.x[Game.nx1:Game.nx1 + 2] - target2_position
-            )
+            player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1]            -Game.x1f))
+            player2_distance = float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:]-Game.x2f))
 
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
-            if (
-                player1_distance <= arrival_tolerance/2
-                and player2_distance <= arrival_tolerance/2
-            ):
-                EndGame = True
+            if ( player1_distance <= arrival_tolerance/2 and player2_distance <= arrival_tolerance/2 ): EndGame = True
             
-            print( f"Time:{Game.t:2.2}, "
+            print( f"Time: {Game.t:2.2}, "
                    f"Player 1 Dist: {player1_distance:2.2}, "
                    f"Player 2 Dist: {player2_distance:2.2}" )
         
