@@ -86,7 +86,7 @@ if __name__ == '__main__':
             if not Solver2.Solution.success and iter > 0:
                 u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
                 u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
-                u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0)
+                u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=True)
         
             u = np.concatenate((u1[0:2], u2[2:]))
             GameFlag = Game.step(u=u)
