@@ -104,7 +104,7 @@ if __name__ == '__main__':
 
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
-            if ( player1_distance <= arrival_tolerance/2 and player2_distance <= arrival_tolerance/2 ): EndGame = True
+            if ( player1_distance <= Solver1.proximity_minval and player2_distance <= Solver2.proximity_minval ): EndGame = True
             
             print( f"Time: {Game.t:2.2}, "
                    f"Player 1 Dist: {player1_distance:2.2}, "
@@ -121,6 +121,13 @@ if __name__ == '__main__':
 
         append_terminal_learned_state(LearnedData, Game, iter)
         
+        if EndGame and GameFlag is not Game.STEP_OK:
+            exception_message = (
+                f"Game ended with an infeasible step at time {Game.t:2.2f} "
+                f"and iteration {iter}."
+            )
+            raise ValueError(exception_message)
+
         # if iter > 1:
         #     alpha1 = max(0.0, alpha1-0.05)
 

@@ -269,7 +269,10 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        target = np.asarray(self.x1f, dtype=float).reshape(-1)
+        if self.t < 1.0:
+            target = np.asarray([2,-2,0,0], dtype=float).reshape(-1)
+        else:
+            target = np.asarray(self.x1f, dtype=float).reshape(-1)
         if target.shape != (self.nx1,):
             raise ValueError(
                 f"x1f must contain one player state with shape ({self.nx1},)"
@@ -280,7 +283,7 @@ class GameDynamics:
         if dist < self.d_sep*2:
             velocity_gain = 2 * velocity_gain
         if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < self.d_sep*2:
-            position_gain = 4 * position_gain
+            position_gain = 8 * position_gain
 
         position_error = target[:2] - self.x[:2]
         if self.is_single_integrator:
