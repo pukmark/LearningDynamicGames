@@ -66,7 +66,7 @@ if __name__ == '__main__':
                 # Player 1 Controller
                 u1 = Solver1.step(Game.t, Game.x)
                 
-                if not Solver1.Solution.success and Solver1.Solution.indx < int(0.5 * Solver1.N):
+                if not Solver1.Solution.success and Solver1.Solution.indx > int(0.5 * Solver1.N):
                     u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
                     if not Solver1.Solution.success:

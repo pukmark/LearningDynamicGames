@@ -673,7 +673,9 @@ class DGSolver:
             self.Solution.success = False
             if hasattr(self.Solution, "u1") and hasattr(self.Solution, "u2"):
                 if u1_0 is None:
-                    self.Solution.indx = min(self.Solution.indx + 1, self.N - 1)
+                    t_vec = np.arange(self.N) * self.dt+self.Solution.t
+                    indx = np.argmin(np.abs(t_vec - t))
+                    self.Solution.indx = indx
                 return np.concatenate(
                     (self.Solution.u1[self.Solution.indx], self.Solution.u2[self.Solution.indx])
                 )
