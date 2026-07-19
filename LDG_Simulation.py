@@ -82,6 +82,7 @@ if __name__ == '__main__':
                                 pass
                                 
             # # Player 2 Controller
+            Solver2.Solution.success = False
             if Solver1.Solution.success and iter > 0:
                 u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
             if not Solver2.Solution.success:

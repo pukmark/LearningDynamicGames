@@ -23,11 +23,11 @@ class GameDynamics:
         u_max=2,
         L=20.0,
         W=2,
-        vx_min=-2,
-        vx_max=2,
-        vy_min=-2,
-        vy_max=2,
-        d_sep=0.25,
+        vx_min=-3,
+        vx_max=3,
+        vy_min=-3,
+        vy_max=3,
+        d_sep=0.3,
         dynamics_type=2,
         MaxIterations=50,
     ):
@@ -86,7 +86,8 @@ class GameDynamics:
         else:
             v1_sym = x_sym[2:4]
             v2_sym = x_sym[self.nx1+2:self.nx1+4]
-        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [self.vy_max**2+self.vx_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2])
+        # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [self.vy_max**2+self.vx_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2])
+        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2])
 
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
         # or [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y] for double-integrator mode.
@@ -269,7 +270,7 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        if self.t < 1.0:
+        if self.t < 0.75:
             target = np.asarray([2,-2,0,0], dtype=float).reshape(-1)
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)
@@ -282,7 +283,7 @@ class GameDynamics:
         dist = np.linalg.norm(self.x[:2] - self.x[self.nx1:self.nx1 + 2])
         if dist < self.d_sep*2:
             velocity_gain = 2 * velocity_gain
-        if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < self.d_sep*2:
+        if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < self.d_sep:
             position_gain = 8 * position_gain
 
         position_error = target[:2] - self.x[:2]
@@ -295,13 +296,13 @@ class GameDynamics:
                 + velocity_gain * velocity_error
             )
             
-            if np.linalg.norm(self.x[2:4])**2 + np.linalg.norm(self.x[self.nx1 + 2:self.nx1 + 4])**2 > self.vx_max**2-3.0:
-                control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
-                if np.dot(control, self.x[2:4]) > 0:
-                    control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
+            # if np.linalg.norm(self.x[2:4])**2 + np.linalg.norm(self.x[self.nx1 + 2:self.nx1 + 4])**2 > self.vx_max**2-3.0:
+            #     control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
+            #     if np.dot(control, self.x[2:4]) > 0:
+            #         control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
                 
-            if np.linalg.norm(self.x[2:4]) > max_velocity and np.dot(control, self.x[2:4]) > 0:
-                control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
+            # if np.linalg.norm(self.x[2:4]) > max_velocity and np.dot(control, self.x[2:4]) > 0:
+            #     control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
 
         u_min = self._as_bounds(self.u_min, self.nu, "u_min")[:self.nu1]
         u_max = self._as_bounds(self.u_max, self.nu, "u_max")[:self.nu1]

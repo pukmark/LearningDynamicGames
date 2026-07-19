@@ -127,6 +127,8 @@ def _solve_sampled_terminal_candidate(
     worker_solver,
     candidate_data,
     sample_index,
+    sample_number,
+    sample_count,
     t,
     x0,
     forced_alpha,
@@ -148,6 +150,8 @@ def _solve_sampled_terminal_candidate(
             u2_0=u2_0,
             terminal_learned_data=candidate_data,
             precomputed_a_set=(a_set, proximity_factor),
+            sample_number=sample_number,
+            sample_count=sample_count,
         )
         if not solver.last_solve_success:
             return sample_index, None, None, None
@@ -162,8 +166,8 @@ class DGSolver:
     def __init__(self, game: GameDynamics, x1f, x2f, 
                        dt=0.1, horizon=10, 
                        alpha=0.5,
-                       R1 = 0.04,
-                       R2 = 0.04,
+                       R1 = 0.02,
+                       R2 = 0.02,
                        LearnedData = None, 
                        p_tol=1e-5,
                        max_workers = 1,
@@ -509,7 +513,7 @@ class DGSolver:
         self.solver.params["private_constraint_multipliers"] = lambda_vec
         self.solver.params["shared_constraints"] = sg_vec
         self.solver.params["shared_constraint_multipliers"] = sigma_vec
-        self.solver.params["lagrangians"] = [ca.Function('L1',[Z, x1_0, x2_0, alpha_vec],[L1]), ca.Function('L1',[Z, x1_0, x2_0, alpha_vec],[L1])]
+        self.solver.params["lagrangians"] = [ca.Function('L1',[Z, x1_0, x2_0, alpha_vec],[L1]), ca.Function('L2',[Z, x1_0, x2_0, alpha_vec],[L2])]
         self.solver.Z = Z
         self.solver.Z_len = Z_len
         self.solver.F = ca.Function('F', [Z, x1_0, x2_0, alpha_vec], [F])
@@ -561,15 +565,17 @@ class DGSolver:
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         if not use_all_terminal_points:
             candidate_indices = np.where(
-                (sample_times > t)
-                & (sample_times > previous_sample_time-2*self.dt)
-                & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
-                & (Cost2Go <= prev_cost2go)
+                (sample_times <= previous_sample_time + (10.0 * self.N) * self.dt)
+                # & (sample_times > previous_sample_time-2*self.dt)
+                # & (sample_times > t)
+                & (Cost2Go <= prev_cost2go+self.N)
             )[0]
         else:
             candidate_indices = np.where( (sample_times >= t-self.N*self.dt) )[0]
         if candidate_indices.shape[0]==0:
-            candidate_indices = np.where((states[:,0] == self.game.xf[0,0]) & (states[:,1] == self.game.xf[0,1]))[0]
+            candidate_indices = np.where((states[:,0] == self.game.x1f[0,0]) & (states[:,1] == self.game.x2f[0,1]))[0]
+        candidate_indices = np.asarray(candidate_indices, dtype=int)
+        candidate_terminal_states = states[candidate_indices].copy()
         previous_solver = getattr(self, "Solver", None)
         best_solution = None
         best_solver = None
@@ -578,7 +584,6 @@ class DGSolver:
         for sample_index in candidate_indices:
             candidate_data = copy.deepcopy(self.LearnedData)
             candidate = candidate_data.AnalyzedData
-            # for field in ("t", "c", "state", "Cost2Go"):
             for field in ("t", "state", "Cost2Go", "u2"):
                 values = np.asarray(getattr(analyzed, field))
                 setattr(candidate, field, values[[sample_index]])
@@ -586,8 +591,11 @@ class DGSolver:
             candidate_data_by_index[int(sample_index)] = candidate_data
 
         candidate_results = []
+        sample_count = len(candidate_data_by_index)
         if self.max_workers == 1:
-            for sample_index, candidate_data in candidate_data_by_index.items():
+            for sample_number, (sample_index, candidate_data) in enumerate(
+                candidate_data_by_index.items(), start=1
+            ):
                 self.Solution = copy.deepcopy(previous_solution)
                 candidate_solver = self._sampled_solver_cache.get(sample_index)
                 self._step_once(
@@ -600,6 +608,8 @@ class DGSolver:
                     terminal_learned_data=candidate_data,
                     terminal_solver=candidate_solver,
                     precomputed_a_set=(a_set, proximity_factor),
+                    sample_number=sample_number,
+                    sample_count=sample_count,
                 )
                 if candidate_solver is None:
                     self._sampled_solver_cache[sample_index] = self.Solver
@@ -625,6 +635,8 @@ class DGSolver:
                     worker_solver,
                     candidate_data,
                     sample_index,
+                    sample_number,
+                    sample_count,
                     t,
                     x0,
                     forced_alpha,
@@ -633,7 +645,9 @@ class DGSolver:
                     a_set,
                     proximity_factor,
                 ): sample_index
-                for sample_index, candidate_data in candidate_data_by_index.items()
+                for sample_number, (sample_index, candidate_data) in enumerate(
+                    candidate_data_by_index.items(), start=1
+                )
             }
             for future in as_completed(futures):
                 submitted_index = futures[future]
@@ -671,6 +685,8 @@ class DGSolver:
             self.Solver = previous_solver
             self.last_solve_success = False
             self.Solution.success = False
+            self.Solution.candidate_indices = candidate_indices.copy()
+            self.Solution.candidate_terminal_states = candidate_terminal_states.copy()
             if hasattr(self.Solution, "u1") and hasattr(self.Solution, "u2"):
                 if u1_0 is None:
                     t_vec = np.arange(self.N) * self.dt+self.Solution.t
@@ -681,6 +697,8 @@ class DGSolver:
                 )
             return np.zeros(self.game.nu)
 
+        best_solution.candidate_indices = candidate_indices.copy()
+        best_solution.candidate_terminal_states = candidate_terminal_states.copy()
         self.Solution = best_solution
         if best_solver is None:
             best_solver = self.build_solver(u2_0=None, 
@@ -710,6 +728,8 @@ class DGSolver:
         terminal_learned_data=None,
         terminal_solver=None,
         precomputed_a_set=None,
+        sample_number=None,
+        sample_count=None,
     ):
         """
         Solve one game step and extract the planned trajectories from z.
@@ -824,7 +844,7 @@ class DGSolver:
         Main.z0 = z0
         Main.ub = np.inf*np.ones(self.Solver.n_u_inf)
         Main.lb = np.concatenate((-np.inf*np.ones(self.Solver.n_l_inf), np.zeros(self.Solver.n_u_inf-self.Solver.n_l_inf)))
-        Main.nnz = self.Solver.J.numel_out(0)
+        Main.nnz = self.Solver.J.nnz_out(0) # Uses CasADi's structural non-zero count
         Main.F_py = lambda z: np.array(self.Solver.F(z, x1_0, x2_0, alpha_vec)).squeeze()
         Main.J_py = lambda z: np.array(self.Solver.J(z, x1_0, x2_0, alpha_vec))
         
@@ -858,14 +878,11 @@ class DGSolver:
             for c in 1:n
                 col[c], len[c] = i, 0
                 for r in 1:n
-                    # if !iszero(j[r, c])
-                    #     row[i], data[i] = r, j[r, c]
-                    #     len[c] += 1
-                    #     i += 1
-                    # end
-                    row[i], data[i] = r, j[r, c]
-                    len[c] += 1
-                    i += 1
+                    if !iszero(j[r, c])
+                        row[i], data[i] = r, j[r, c]
+                        len[c] += 1
+                        i += 1
+                    end
                 end
             end
             return Cint(0)
@@ -909,7 +926,15 @@ class DGSolver:
         self.last_solve_success = bool(success)
         
         if not success:
-            print(f"Solver Not Converged: residual={residual:2.2}, status={status.__name__}")
+            sample_progress = (
+                f", sample={sample_number}/{sample_count}"
+                if sample_number is not None and sample_count is not None
+                else ""
+            )
+            print(
+                f"Solver Not Converged: residual={residual:2.2}, "
+                f"status={status.__name__}{sample_progress}"
+            )
 
         i = 0
         x1_len, u1_len, ai_len = self.Solver.Z_len[0]

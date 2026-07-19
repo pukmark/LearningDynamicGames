@@ -101,6 +101,12 @@ def plot_simulation_init(game):
     lines["p2_current"], = ax_xy.plot([], [], "C1o")
     lines["p1_prediction"], = ax_xy.plot([], [], "C0--", alpha=0.8, label="P1 prediction")
     lines["p2_prediction"], = ax_xy.plot([], [], "C1--", alpha=0.8, label="P2 prediction")
+    lines["p1_terminal_candidates"], = ax_xy.plot(
+        [], [], "C0x", alpha=0.75, linestyle="none", label="P1 examined terminals"
+    )
+    lines["p2_terminal_candidates"], = ax_xy.plot(
+        [], [], "C1x", alpha=0.75, linestyle="none", label="P2 examined terminals"
+    )
     lines["Target1"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 1", linewidth=3)
     lines["Target2"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 2", linewidth=3)
     ax_xy.axhline(game.y_min, color="0.75", linewidth=0.8)
@@ -123,6 +129,9 @@ def plot_simulation_init(game):
         [], [], "o", color="C4", markerfacecolor="none", markersize=8,
         markeredgewidth=2, linestyle="none", label="solution data",
     )
+    lines["x_joint_terminal_candidates"], = ax_xpos.plot(
+        [], [], "C6x", markersize=7, linestyle="none", label="examined terminals"
+    )
     ax_xpos.set_xlim(game.x_min-eps, game.x_max+eps)
     ax_xpos.set_ylim(game.x_min-eps, game.x_max+eps)
     ax_xpos.set_aspect("equal", adjustable="box")
@@ -140,6 +149,9 @@ def plot_simulation_init(game):
     lines["y_joint_active_samples"], = ax_ypos.plot(
         [], [], "o", color="C4", markerfacecolor="none", markersize=8,
         markeredgewidth=2, linestyle="none", label="solution data",
+    )
+    lines["y_joint_terminal_candidates"], = ax_ypos.plot(
+        [], [], "C6x", markersize=7, linestyle="none", label="examined terminals"
     )
     ax_ypos.set_xlim(game.y_min-eps, game.y_max+eps)
     ax_ypos.set_ylim(game.y_min-eps, game.y_max+eps)
@@ -297,6 +309,37 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     sampled_states = analyzed_data.state
     solution = getattr(solver1, "Solution", None)
 
+    candidate_terminal_states = np.asarray(
+        getattr(solution, "candidate_terminal_states", []), dtype=float
+    )
+    if (
+        candidate_terminal_states.ndim == 2
+        and candidate_terminal_states.shape[1] == game.nx
+    ):
+        candidate_x_positions = candidate_terminal_states[:, [0, p2_i]]
+        candidate_y_positions = candidate_terminal_states[:, [1, p2_i + 1]]
+        lines["p1_terminal_candidates"].set_data(
+            candidate_terminal_states[:, 0], candidate_terminal_states[:, 1]
+        )
+        lines["p2_terminal_candidates"].set_data(
+            candidate_terminal_states[:, p2_i],
+            candidate_terminal_states[:, p2_i + 1],
+        )
+        lines["x_joint_terminal_candidates"].set_data(
+            candidate_x_positions[:, 0], candidate_x_positions[:, 1]
+        )
+        lines["y_joint_terminal_candidates"].set_data(
+            candidate_y_positions[:, 0], candidate_y_positions[:, 1]
+        )
+    else:
+        candidate_terminal_states = np.empty((0, game.nx))
+        candidate_x_positions = np.empty((0, 2))
+        candidate_y_positions = np.empty((0, 2))
+        lines["p1_terminal_candidates"].set_data([], [])
+        lines["p2_terminal_candidates"].set_data([], [])
+        lines["x_joint_terminal_candidates"].set_data([], [])
+        lines["y_joint_terminal_candidates"].set_data([], [])
+
     raw_data = getattr(learned_data, "RawData", [])
     completed_iteration_costs = tuple(
         (iteration_index + 1, float(iteration_data.p1_total_cost))
@@ -407,10 +450,20 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         lines["y_joint_active_samples"].set_data([], [])
 
     joint_x_positions = np.vstack(
-        (x[:, [0, p2_i]], sampled_x_positions, joint_x_target)
+        (
+            x[:, [0, p2_i]],
+            sampled_x_positions,
+            candidate_x_positions,
+            joint_x_target,
+        )
     )
     joint_y_positions = np.vstack(
-        (x[:, [1, p2_i + 1]], sampled_y_positions, joint_y_target)
+        (
+            x[:, [1, p2_i + 1]],
+            sampled_y_positions,
+            candidate_y_positions,
+            joint_y_target,
+        )
     )
     _set_tight_joint_limits(ax_xpos, joint_x_positions)
     _set_tight_joint_limits(ax_ypos, joint_y_positions)
