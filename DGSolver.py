@@ -217,8 +217,8 @@ class DGSolver:
         u1 = ca.SX.sym('u1', self.game.nu1)
         u2 = ca.SX.sym('u2', self.game.nu2)
 
-        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) <= self.proximity_minval, 0.0, 1.0)
-        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) <= self.proximity_minval, 0.0, 1.0)
+        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) == 0.0, 0.0, 1.0)
+        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) == 0.0, 0.0, 1.0)
         
         self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
         self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
@@ -541,18 +541,18 @@ class DGSolver:
         )
         return A, B
 
-    def step(self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False):
+    def step(self, t, x0, current_cost1=0.0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False):
         """Solve one step using the configured learned terminal-state mode."""
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
-                t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution, use_all_terminal_points=use_all_terminal_points
+                t, x0, current_cost1=current_cost1, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution, use_all_terminal_points=use_all_terminal_points
             )
         return self._step_once(
             t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
         )
 
     def _step_over_sampled_terminal_states(
-        self, t, x0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False
+        self, t, x0, current_cost1=0.0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False
     ):
         """Enumerate learned terminal points and keep the lowest-cost P1 solution."""
         analyzed = self.LearnedData.AnalyzedData
@@ -560,15 +560,17 @@ class DGSolver:
         Cost2Go = np.asarray(analyzed.Cost2Go)
         sample_times = np.asarray(analyzed.t)
         previous_solution = copy.deepcopy(self.Solution)
-        prev_cost2go = Cost2Go[previous_solution.terminal_sample_index] if previous_solution.success else np.inf
+        terminal_sample_index = getattr(previous_solution, "terminal_sample_index", -1)
+        prev_cost2go = Cost2Go[terminal_sample_index] if terminal_sample_index >= 0 else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         if not use_all_terminal_points:
             candidate_indices = np.where(
-                (sample_times <= previous_sample_time + (10.0 * self.N) * self.dt)
+                (Cost2Go <= prev_cost2go+1.0)
+                & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
                 # & (sample_times > previous_sample_time-2*self.dt)
                 # & (sample_times > t)
-                & (Cost2Go <= prev_cost2go+self.N)
+                
             )[0]
         else:
             candidate_indices = np.where( (sample_times >= t-self.N*self.dt) )[0]
@@ -668,9 +670,9 @@ class DGSolver:
                     candidate_results.append(
                         (sample_index, cost, solution, None)
                     )
-
+        prev_player1_predicted_cost = getattr(previous_solution, "player1_predicted_cost", np.inf)
         for sample_index, candidate_cost, candidate_solution, candidate_solver in candidate_results:
-            if candidate_cost < best_cost:
+            if candidate_cost < best_cost and current_cost1 + candidate_cost <= prev_player1_predicted_cost + 1e-3:
                 best_cost = candidate_cost
                 best_solution = candidate_solution
                 best_solver = candidate_solver
@@ -678,6 +680,7 @@ class DGSolver:
                 best_solution.terminal_sample_time = float(sample_times[sample_index])
                 best_solution.terminal_sample_state = states[sample_index].copy()
                 best_solution.player1_cost = candidate_cost
+                best_solution.player1_predicted_cost = current_cost1 + candidate_cost
                 best_solution.terminal_workers = self.max_workers
 
         if best_solution is None:

@@ -270,7 +270,7 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        if self.t < 0.75:
+        if self.t < 1.0:
             target = np.asarray([2,-2,0,0], dtype=float).reshape(-1)
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)

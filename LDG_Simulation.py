@@ -58,25 +58,26 @@ if __name__ == '__main__':
         Game.reset_game()
         Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
         EndGame = False
+        current_cost1 = 0.0
         while not EndGame:
             if iter == 0:
                 u1 = Game.SimpleController()
                 Solver2.Solution.success = False
             else:
                 # Player 1 Controller
-                u1 = Solver1.step(Game.t, Game.x)
+                u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
                 
-                if not Solver1.Solution.success and Solver1.Solution.indx > int(0.5 * Solver1.N):
+                if not Solver1.Solution.success and Solver1.Solution.indx > int(Solver1.N):
                     u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
                     if not Solver1.Solution.success:
                         u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
                         u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
-                        u1 = Solver1.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0)
+                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, u1_0=u1_0, u2_0=u2_0)
                     if not Solver1.Solution.success:
                         for alpha in [0.9, 0.8, 0.7]:
                             try:
-                                u1 = Solver1.step(Game.t, Game.x, forced_alpha=alpha)
+                                u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, forced_alpha=alpha)
                                 if Solver1.Solution.success: break
                             except:
                                 pass
@@ -91,7 +92,10 @@ if __name__ == '__main__':
                 u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
                 u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
                 u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=True)
-        
+
+            # calculate current cost for player 1:
+            current_cost1 += float(Solver1.l1(Game.x[:Game.nx1], u1[:Game.nu1]))
+            
             u = np.concatenate((u1[0:2], u2[2:]))
             GameFlag = Game.step(u=u)
             plot_simulation(Game, Solver1, Solver2, LearnedData)
@@ -105,7 +109,7 @@ if __name__ == '__main__':
 
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
-            if ( player1_distance <= Solver1.proximity_minval and player2_distance <= Solver2.proximity_minval ): EndGame = True
+            if ( player1_distance <= Solver1.proximity_minval): EndGame = True
             
             print( f"Time: {Game.t:2.2}, "
                    f"Player 1 Dist: {player1_distance:2.2}, "
