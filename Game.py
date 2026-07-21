@@ -23,10 +23,10 @@ class GameDynamics:
         u_max=2,
         L=20.0,
         W=2,
-        vx_min=-3,
-        vx_max=3,
-        vy_min=-3,
-        vy_max=3,
+        vx_min=-2,
+        vx_max=2,
+        vy_min=-2,
+        vy_max=2,
         d_sep=0.3,
         dynamics_type=2,
         MaxIterations=50,
@@ -262,7 +262,7 @@ class GameDynamics:
         self.reset_history()
         self.iteration += 1
 
-    def SimpleController(self, position_gain=1.0, velocity_gain=5.0, max_velocity=1.0):
+    def SimpleController(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 1.
 
         The single-integrator controller commands velocity proportional to the
@@ -270,8 +270,8 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        if self.t < 1.0:
-            target = np.asarray([2,-2,0,0], dtype=float).reshape(-1)
+        if self.t < 2.0:
+            target = np.asarray([-2.5,2,0,0], dtype=float).reshape(-1)
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)
         if target.shape != (self.nx1,):
@@ -281,10 +281,10 @@ class GameDynamics:
 
         # add damp if too close to player 2:
         dist = np.linalg.norm(self.x[:2] - self.x[self.nx1:self.nx1 + 2])
-        if dist < self.d_sep*2:
+        if dist < 2*self.d_sep:
             velocity_gain = 2 * velocity_gain
         if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < self.d_sep:
-            position_gain = 8 * position_gain
+            position_gain = 4 * position_gain
 
         position_error = target[:2] - self.x[:2]
         if self.is_single_integrator:
@@ -296,10 +296,10 @@ class GameDynamics:
                 + velocity_gain * velocity_error
             )
             
-            # if np.linalg.norm(self.x[2:4])**2 + np.linalg.norm(self.x[self.nx1 + 2:self.nx1 + 4])**2 > self.vx_max**2-3.0:
-            #     control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
-            #     if np.dot(control, self.x[2:4]) > 0:
-            #         control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
+            if np.linalg.norm(self.x[2:4]) > self.vx_max-1.0:
+                control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
+                if np.dot(control, self.x[2:4]) > 0:
+                    control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
                 
             # if np.linalg.norm(self.x[2:4]) > max_velocity and np.dot(control, self.x[2:4]) > 0:
             #     control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2

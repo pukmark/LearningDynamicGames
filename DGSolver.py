@@ -164,10 +164,10 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, x1f, x2f, 
-                       dt=0.1, horizon=10, 
+                       dt=0.1, horizon=15, 
                        alpha=0.5,
-                       R1 = 0.02,
-                       R2 = 0.02,
+                       R1 = 0.04,
+                       R2 = 0.04,
                        LearnedData = None, 
                        p_tol=1e-5,
                        max_workers = 1,
@@ -694,7 +694,7 @@ class DGSolver:
                 if u1_0 is None:
                     t_vec = np.arange(self.N) * self.dt+self.Solution.t
                     indx = np.argmin(np.abs(t_vec - t))
-                    self.Solution.indx = indx
+                    self.Solution.indx = max(self.Solution.indx+1, indx)
                 return np.concatenate(
                     (self.Solution.u1[self.Solution.indx], self.Solution.u2[self.Solution.indx])
                 )
