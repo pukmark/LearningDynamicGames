@@ -561,7 +561,7 @@ class DGSolver:
         sample_times = np.asarray(analyzed.t)
         previous_solution = copy.deepcopy(self.Solution)
         terminal_sample_index = getattr(previous_solution, "terminal_sample_index", -1)
-        prev_cost2go = Cost2Go[terminal_sample_index] if terminal_sample_index >= 0 else np.inf
+        prev_cost2go = Cost2Go[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         if not use_all_terminal_points:
