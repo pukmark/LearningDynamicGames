@@ -271,9 +271,10 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        if self.t < 1.0:
+        if self.t < 0.9 and self.x[3]<self.vy_max-0.02:
             target = np.asarray([-1.0,2,0,0], dtype=float).reshape(-1)
-            velocity_gain = 2.0
+            velocity_gain = 0.0
+            position_gain=10.0
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)
         if target.shape != (self.nx1,):
@@ -298,8 +299,8 @@ class GameDynamics:
                 + velocity_gain * velocity_error
             )
             
-            if np.linalg.norm(self.x[2:4]) > self.vx_max-1.0:
-                control = -0.25 * self.x[2:4] / np.linalg.norm(self.x[2:4])
+            if np.linalg.norm(self.x[2:4]) > self.vx_max-1.0 and self.t>=0.9:
+                control = control -1. * self.x[2:4] / np.linalg.norm(self.x[2:4])
                 if np.dot(control, self.x[2:4]) > 0:
                     control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
                 
