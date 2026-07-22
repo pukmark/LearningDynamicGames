@@ -25,7 +25,7 @@ dt = 0.1
 tf = 10.0
 dynamics_type = 2  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 40
+Niterations = 20
 arrival_tolerance = 0.05
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
