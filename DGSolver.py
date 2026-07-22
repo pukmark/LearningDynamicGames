@@ -695,6 +695,8 @@ class DGSolver:
                     t_vec = np.arange(self.N) * self.dt+self.Solution.t
                     indx = np.argmin(np.abs(t_vec - t))
                     self.Solution.indx = max(self.Solution.indx+1, indx)
+                    if self.Solution.indx >= self.N:
+                        return np.zeros(self.game.nu)
                 return np.concatenate(
                     (self.Solution.u1[self.Solution.indx], self.Solution.u2[self.Solution.indx])
                 )

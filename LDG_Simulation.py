@@ -31,7 +31,7 @@ learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.0, 1.0, dynamics_type=dynamics_type)])
 max_workers = max(1, int(os.cpu_count() * 0.3))
-max_workers = 1
+# max_workers = 1
         
 
 if __name__ == '__main__':
@@ -64,7 +64,7 @@ if __name__ == '__main__':
                 # Player 1 Controller
                 u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
                 
-                if not Solver1.Solution.success and Solver1.Solution.indx > int(Solver1.N):
+                if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.8 * Solver1.N) and not np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
                     u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
                     if not Solver1.Solution.success:
