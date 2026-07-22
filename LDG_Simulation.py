@@ -31,12 +31,12 @@ learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.0, 1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.0, 1.5, dynamics_type=dynamics_type)])
 max_workers = max(1, int(os.cpu_count() * 0.3))
-# max_workers = 1
+max_workers = 1
         
 
 if __name__ == '__main__':
     
-    x0 = np.array( player_state(1.5-L/2, -0.0, dynamics_type=dynamics_type) + player_state(L/2-0.5, -0.0, dynamics_type=dynamics_type))
+    x0 = np.array( player_state(0.5-L/2, -0.0, dynamics_type=dynamics_type) + player_state(L/2-0.5, -0.0, dynamics_type=dynamics_type))
     alpha1, alpha2 = 0.5, 0.46
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)

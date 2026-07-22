@@ -88,7 +88,7 @@ class GameDynamics:
             v2_sym = x_sym[self.nx1+2:self.nx1+4]
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [self.vy_max**2+self.vx_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2])
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2])
-        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [x_sym[1]-x_sym[self.nx1+1]])
+        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[0]-x_sym[self.nx1]) + ca.sumsqr(x_sym[1]-x_sym[self.nx1+1]) - self.d_sep**2, x_sym[1]-x_sym[self.nx1+1]])
 
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
         # or [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y] for double-integrator mode.
@@ -272,7 +272,7 @@ class GameDynamics:
         respects player 1's input bounds.
         """
         if self.t < 0.9 and self.x[3]<self.vy_max-0.02:
-            target = np.asarray([-1.0,2,0,0], dtype=float).reshape(-1)
+            target = np.asarray([-2.0,2,0,0], dtype=float).reshape(-1)
             velocity_gain = 0.0
             position_gain=10.0
         else:
