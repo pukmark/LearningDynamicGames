@@ -62,9 +62,13 @@ if __name__ == '__main__':
                 Solver2.Solution.success = False
             else:
                 # Player 1 Controller
-                u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
+                if Solver1.Solution.terminal_sample_state is not None and np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                    Solver1.Solution.indx += 1
+                    u1 = np.concatenate( (Solver1.Solution.u1[Solver1.Solution.indx],Solver1.Solution.u2[Solver1.Solution.indx]))
+                else:
+                    u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
                 
-                if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.8 * Solver1.N) and not np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.5 * Solver1.N) and not np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
                     u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
                     if not Solver1.Solution.success:

@@ -229,6 +229,7 @@ class DGSolver:
         
         self.Solution = SimpleNamespace()
         self.Solution.success = False
+        self.Solution.terminal_sample_state = None
         self.last_solve_success = False
 
     def build_solver(self, u2_0 = None, Terminal_Safe_Set = None):

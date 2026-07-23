@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+from matplotlib.patches import Circle, Patch
 from scipy.spatial import ConvexHull, QhullError
 
 eps = 1e-1
@@ -99,6 +99,31 @@ def plot_simulation_init(game):
     lines["p2_state"], = ax_xy.plot([], [], "C1-", label="P2 state")
     lines["p1_current"], = ax_xy.plot([], [], "C0o")
     lines["p2_current"], = ax_xy.plot([], [], "C1o")
+    separation_circles = (
+        Circle(
+            (0.0, 0.0),
+            radius=game.d_sep / 2,
+            fill=False,
+            edgecolor="C0",
+            linestyle=":",
+            linewidth=1.5,
+            alpha=0.8,
+            label=r"$d_{\mathrm{sep}}$ diameter",
+            visible=False,
+        ),
+        Circle(
+            (0.0, 0.0),
+            radius=game.d_sep / 2,
+            fill=False,
+            edgecolor="C1",
+            linestyle=":",
+            linewidth=1.5,
+            alpha=0.8,
+            visible=False,
+        ),
+    )
+    for separation_circle in separation_circles:
+        ax_xy.add_patch(separation_circle)
     lines["p1_prediction"], = ax_xy.plot([], [], "C0--", alpha=0.8, label="P1 prediction")
     lines["p2_prediction"], = ax_xy.plot([], [], "C1--", alpha=0.8, label="P2 prediction")
     lines["p1_terminal_candidates"], = ax_xy.plot(
@@ -232,6 +257,7 @@ def plot_simulation_init(game):
         "ax_cost": ax_cost,
         "ax_arrival": ax_arrival,
         "lines": lines,
+        "separation_circles": separation_circles,
         "iteration": game.iteration,
         "past_xy_lines": [],
         "cost_bars": None,
@@ -292,6 +318,16 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     lines["p2_state"].set_data(x[:, p2_i], x[:, p2_i + 1])
     lines["p1_current"].set_data([x[-1, 0]], [x[-1, 1]])
     lines["p2_current"].set_data([x[-1, p2_i]], [x[-1, p2_i + 1]])
+    player_positions = (
+        (x[-1, 0], x[-1, 1]),
+        (x[-1, p2_i], x[-1, p2_i + 1]),
+    )
+    for separation_circle, position in zip(
+        state["separation_circles"], player_positions
+    ):
+        separation_circle.center = position
+        separation_circle.set_radius(game.d_sep / 2)
+        separation_circle.set_visible(True)
     lines["x_joint_state"].set_data(x[:, 0], x[:, p2_i])
     lines["x_joint_current"].set_data([x[-1, 0]], [x[-1, p2_i]])
     lines["y_joint_state"].set_data(x[:, 1], x[:, p2_i + 1])

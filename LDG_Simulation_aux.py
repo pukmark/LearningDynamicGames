@@ -91,7 +91,7 @@ def rebuild_analyzed_data(
     current_iteration,
     game,
     solver,
-    iterations_to_use=3,
+    iterations_to_use=5,
 ):
     """Rebuild analyzed data using only the latest RawData iterations."""
     analyzed_data = init_analyzed_data()
