@@ -62,7 +62,7 @@ if __name__ == '__main__':
                 Solver2.Solution.success = False
             else:
                 if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
-                    u1 = np.zeros(Solver1.nu)
+                    u1 = np.zeros(Game.nu)
                 # Player 1 Controller
                 elif Solver1.Solution.terminal_sample_state is not None and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8:
                     Solver1.Solution.indx += 1
@@ -87,8 +87,8 @@ if __name__ == '__main__':
                                 
             # # Player 2 Controller
             Solver2.Solution.success = False
-            if float(ca.bilin(Solver1.Qk, Game.x[Game.nx1:] - Game.x2f)) <= 1e-8:
-                u2 = np.zeros(Solver1.nu)
+            if float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f)) <= 1e-8:
+                u2 = np.zeros(Game.nu)
             elif Solver1.Solution.success and iter > 0:
                 u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
             if not Solver2.Solution.success:
