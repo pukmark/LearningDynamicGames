@@ -283,6 +283,7 @@ def plot_simulation_init(game):
         "cost_bars": [],
         "cost_labels": [],
         "plotted_iteration_costs": None,
+        "predicted_cost1": None,
     }
     plot_simulation._state = state
     if plt.get_backend().lower() != "agg":
@@ -416,8 +417,9 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         predicted_iteration_cost = _player1_executed_cost(x, u, game, solver1)
         predicted_iteration_cost += float(predicted_cost_to_go)
         predicted_cost = (game.iteration, predicted_iteration_cost)
+        state["predicted_cost1"] = predicted_cost
     else:
-        predicted_cost = None
+        predicted_cost = state["predicted_cost1"]
 
     cost_plot_data = (plotted_costs, predicted_cost)
     if cost_plot_data != state["plotted_iteration_costs"]:

@@ -61,8 +61,10 @@ if __name__ == '__main__':
                 u1 = Game.SimpleController()
                 Solver2.Solution.success = False
             else:
+                if np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                    u1 = np.zeros(Solver1.nu)
                 # Player 1 Controller
-                if Solver1.Solution.terminal_sample_state is not None and np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                elif Solver1.Solution.terminal_sample_state is not None and np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
                     Solver1.Solution.indx += 1
                     u1 = np.concatenate( (Solver1.Solution.u1[Solver1.Solution.indx],Solver1.Solution.u2[Solver1.Solution.indx]))
                 else:
@@ -105,12 +107,12 @@ if __name__ == '__main__':
             if GameFlag != Game.STEP_OK:
                 print("Infeasible Step - Stopping Iteration")
 
-            player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1]            -Game.x1f))
-            player2_distance = float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:]-Game.x2f))
+            player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f))
+            player2_distance = float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f))
 
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
-            if ( player1_distance <= Solver1.proximity_minval): EndGame = True
+            if ( max(player1_distance, player2_distance) <= Solver1.proximity_minval): EndGame = True
             
             print( f"Time: {Game.t:2.2}, "
                    f"Player 1 Dist: {player1_distance:2.2}, "
