@@ -61,16 +61,16 @@ if __name__ == '__main__':
                 u1 = Game.SimpleController()
                 Solver2.Solution.success = False
             else:
-                if np.all(Game.x[:Game.nx1] == x1f):
+                if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
                     u1 = np.zeros(Solver1.nu)
                 # Player 1 Controller
-                elif Solver1.Solution.terminal_sample_state is not None and np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                elif Solver1.Solution.terminal_sample_state is not None and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8:
                     Solver1.Solution.indx += 1
                     u1 = np.concatenate( (Solver1.Solution.u1[Solver1.Solution.indx],Solver1.Solution.u2[Solver1.Solution.indx]))
                 else:
                     u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
                 
-                if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.5 * Solver1.N) and not np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.5 * Solver1.N) and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) > 1e-8:
                     u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
 
                     if not Solver1.Solution.success:
@@ -87,7 +87,7 @@ if __name__ == '__main__':
                                 
             # # Player 2 Controller
             Solver2.Solution.success = False
-            if np.all(Game.x[:Game.nx1] == x1f):
+            if float(ca.bilin(Solver1.Qk, Game.x[Game.nx1:] - Game.x2f)) <= 1e-8:
                 u2 = np.zeros(Solver1.nu)
             elif Solver1.Solution.success and iter > 0:
                 u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
