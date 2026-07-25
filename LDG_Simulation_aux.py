@@ -103,6 +103,11 @@ def rebuild_analyzed_data(
         p1_stage_costs = [(solver.l1(state[:game.nx1], u[:game.nu1])) for state, u in zip(states, raw_data.u)]
         p1_costs_to_go = np.cumsum(p1_stage_costs[::-1])[::-1]
         raw_data.p1_total_cost = float(p1_costs_to_go[0])
+        p2_stage_costs = [
+            float(solver.l2(state[game.nx1:], u[game.nu1:]))
+            for state, u in zip(states, raw_data.u)
+        ]
+        raw_data.p2_total_cost = float(sum(p2_stage_costs))
 
         for t, state, u, p1_cost_to_go in zip(
             raw_data.t,

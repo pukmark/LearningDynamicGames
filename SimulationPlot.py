@@ -56,6 +56,25 @@ def _player1_executed_cost(states, inputs, game, solver):
     return total_cost
 
 
+def _player2_completed_cost(iteration_data, game, solver):
+    """Return P2's total cost for a completed iteration."""
+    stored_cost = getattr(iteration_data, "p2_total_cost", np.nan)
+    if np.isfinite(stored_cost):
+        return float(stored_cost)
+
+    states = getattr(iteration_data, "x", [])
+    inputs = getattr(iteration_data, "u", [])
+    if len(states) == 0 or len(inputs) == 0:
+        return np.nan
+
+    return float(
+        sum(
+            float(solver.l2(state[game.nx1:], control[game.nu1:]))
+            for state, control in zip(states, inputs)
+        )
+    )
+
+
 def close_simulation_plots():
     """Clear plot state and close all matplotlib figures."""
     state = getattr(plot_simulation, "_state", None)
@@ -220,15 +239,16 @@ def plot_simulation_init(game):
 
     ax_cost.set_xlabel("iteration")
     ax_cost.set_ylabel("total cost-to-go")
-    ax_cost.set_title("P1 total cost-to-go by iteration")
+    ax_cost.set_title("Player total cost-to-go by iteration")
     ax_cost.grid(True, axis="y", alpha=0.3)
-    # ax_cost.legend(
-    #     handles=(
-    #         Patch(facecolor="C5", label="completed total cost"),
-    #         Patch(facecolor="C4", label="current predicted iteration total"),
-    #     ),
-    #     loc="best",
-    # )
+    ax_cost.legend(
+        handles=(
+            Patch(facecolor="C0", label="P1 completed"),
+            Patch(facecolor="C1", label="P2 completed"),
+            Patch(facecolor="C4", label="P1 current predicted"),
+        ),
+        loc="best",
+    )
 
     lines["p1_arrival_time"], = ax_arrival.plot(
         [], [], "C0o-", label="P1 arrival time"
@@ -260,7 +280,7 @@ def plot_simulation_init(game):
         "separation_circles": separation_circles,
         "iteration": game.iteration,
         "past_xy_lines": [],
-        "cost_bars": None,
+        "cost_bars": [],
         "cost_labels": [],
         "plotted_iteration_costs": None,
     }
@@ -378,14 +398,15 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
 
     raw_data = getattr(learned_data, "RawData", [])
     completed_iteration_costs = tuple(
-        (iteration_index + 1, float(iteration_data.p1_total_cost))
+        (
+            iteration_index + 1,
+            float(iteration_data.p1_total_cost),
+            _player2_completed_cost(iteration_data, game, solver2),
+        )
         for iteration_index, iteration_data in enumerate(raw_data)
         if np.isfinite(getattr(iteration_data, "p1_total_cost", np.nan))
     )
-    plotted_costs = tuple(
-        (iteration, cost, False)
-        for iteration, cost in completed_iteration_costs
-    )
+    plotted_costs = completed_iteration_costs
     predicted_cost_to_go = getattr(solution, "player1_cost", np.nan)
     if (
         bool(getattr(solution, "success", False))
@@ -394,31 +415,61 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ):
         predicted_iteration_cost = _player1_executed_cost(x, u, game, solver1)
         predicted_iteration_cost += float(predicted_cost_to_go)
-        plotted_costs += ((game.iteration, predicted_iteration_cost, True),)
+        predicted_cost = (game.iteration, predicted_iteration_cost)
+    else:
+        predicted_cost = None
 
-    if plotted_costs != state["plotted_iteration_costs"]:
+    cost_plot_data = (plotted_costs, predicted_cost)
+    if cost_plot_data != state["plotted_iteration_costs"]:
         for label in state["cost_labels"]:
             label.remove()
         state["cost_labels"] = []
-        if state["cost_bars"] is not None:
-            state["cost_bars"].remove()
+        for bars in state["cost_bars"]:
+            bars.remove()
+        state["cost_bars"] = []
 
-        plotted_iterations = [item[0] for item in plotted_costs]
-        plotted_values = [item[1] for item in plotted_costs]
-        bar_colors = ["C4" if item[2] else "C5" for item in plotted_costs]
-        state["cost_bars"] = ax_cost.bar(
-            plotted_iterations,
-            plotted_values,
-            color=bar_colors,
-            width=0.7,
-        )
-        cost_labels = [f"{value:.2f}".rstrip("0").rstrip(".") for value in plotted_values]
-        state["cost_labels"] = ax_cost.bar_label(
-            state["cost_bars"],
-            labels=cost_labels,
-            padding=3,
-        )
-        state["plotted_iteration_costs"] = plotted_costs
+        completed_iterations = [item[0] for item in completed_iteration_costs]
+        p1_completed_values = [item[1] for item in completed_iteration_costs]
+        p2_completed_values = [item[2] for item in completed_iteration_costs]
+        bar_width = 0.34
+        if completed_iterations:
+            p1_bars = ax_cost.bar(
+                np.asarray(completed_iterations) - bar_width / 2,
+                p1_completed_values,
+                color="C0",
+                width=bar_width,
+            )
+            p2_bars = ax_cost.bar(
+                np.asarray(completed_iterations) + bar_width / 2,
+                p2_completed_values,
+                color="C1",
+                width=bar_width,
+            )
+            state["cost_bars"].extend((p1_bars, p2_bars))
+
+        if predicted_cost is not None:
+            predicted_bars = ax_cost.bar(
+                [predicted_cost[0]],
+                [predicted_cost[1]],
+                color="C4",
+                width=0.7,
+            )
+            state["cost_bars"].append(predicted_bars)
+
+        for bars in state["cost_bars"]:
+            cost_labels = [
+                f"{bar.get_height():.2f}".rstrip("0").rstrip(".")
+                for bar in bars
+            ]
+            state["cost_labels"].extend(
+                ax_cost.bar_label(bars, labels=cost_labels, padding=3)
+            )
+
+        state["plotted_iteration_costs"] = cost_plot_data
+        plotted_iterations = completed_iterations.copy()
+        if predicted_cost is not None:
+            plotted_iterations.append(predicted_cost[0])
+        plotted_iterations = sorted(set(plotted_iterations))
         if plotted_iterations:
             ax_cost.set_xticks(plotted_iterations)
             ax_cost.set_xlim(0.4, plotted_iterations[-1] + 0.6)
