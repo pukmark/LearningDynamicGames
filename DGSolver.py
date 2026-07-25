@@ -258,7 +258,7 @@ class DGSolver:
         sg_vec = []
         # Define The first player lagrangian:
         L1 = 0
-        for k in range(self.N-1):
+        for k in range(self.N):
             L1 += self.l1(x1[k,:], u1[k,:])
             
         if Terminal_Safe_Set is not None:

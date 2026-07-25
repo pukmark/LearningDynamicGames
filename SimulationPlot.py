@@ -121,7 +121,7 @@ def plot_simulation_init(game):
     separation_circles = (
         Circle(
             (0.0, 0.0),
-            radius=game.d_sep / 2,
+            radius=game.d_sep,
             fill=False,
             edgecolor="C0",
             linestyle=":",
@@ -132,7 +132,7 @@ def plot_simulation_init(game):
         ),
         Circle(
             (0.0, 0.0),
-            radius=game.d_sep / 2,
+            radius=game.d_sep,
             fill=False,
             edgecolor="C1",
             linestyle=":",
