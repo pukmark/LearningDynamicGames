@@ -61,7 +61,7 @@ if __name__ == '__main__':
                 u1 = Game.SimpleController()
                 Solver2.Solution.success = False
             else:
-                if np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
+                if np.all(Game.x[:Game.nx1] == x1f):
                     u1 = np.zeros(Solver1.nu)
                 # Player 1 Controller
                 elif Solver1.Solution.terminal_sample_state is not None and np.all(Solver1.Solution.terminal_sample_state[:Game.nx1] == x1f):
@@ -87,7 +87,9 @@ if __name__ == '__main__':
                                 
             # # Player 2 Controller
             Solver2.Solution.success = False
-            if Solver1.Solution.success and iter > 0:
+            if np.all(Game.x[:Game.nx1] == x1f):
+                u2 = np.zeros(Solver1.nu)
+            elif Solver1.Solution.success and iter > 0:
                 u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
             if not Solver2.Solution.success:
                 u2 = Solver2.step(Game.t, Game.x)
