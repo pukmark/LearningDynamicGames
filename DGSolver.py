@@ -673,7 +673,7 @@ class DGSolver:
                     )
         prev_player1_predicted_cost = getattr(previous_solution, "player1_predicted_cost", np.inf)
         for sample_index, candidate_cost, candidate_solution, candidate_solver in candidate_results:
-            if candidate_cost < best_cost and current_cost1 + candidate_cost <= prev_player1_predicted_cost + 1e-3:
+            if candidate_cost < best_cost and current_cost1 + candidate_cost <= prev_player1_predicted_cost + 1.0:
                 best_cost = candidate_cost
                 best_solution = candidate_solution
                 best_solver = candidate_solver

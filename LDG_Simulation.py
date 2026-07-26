@@ -77,7 +77,10 @@ if __name__ == '__main__':
                     Found = False
                     u1 = np.zeros(Game.nu)
                     for dalpha1 in np.linspace(0.0, 0.5, 10)[1:]:
-                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True, force_alpha=alpha1-dalpha1)
+                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True, forced_alpha=alpha1-dalpha1)
+                        if Solver1.Solution.success:
+                            Found = True
+                            break
                         
                                 
             # # Player 2 Controller
