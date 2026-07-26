@@ -71,7 +71,7 @@ if __name__ == '__main__':
                     u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
                 
                 if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.5 * Solver1.N) and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) > 1e-8:
-                    u1 = Solver1.step(Game.t, Game.x, use_all_terminal_points=True)
+                    u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
 
                     if not Solver1.Solution.success:
                         u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
