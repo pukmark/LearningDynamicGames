@@ -73,26 +73,11 @@ if __name__ == '__main__':
                 if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.5 * Solver1.N) and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) > 1e-8:
                     u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
 
-                    # if not Solver1.Solution.success:
-                    #     u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
-                    #     u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
-                    #     u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, u1_0=u1_0, u2_0=u2_0)
                 if Solver1.Solution.indx >= Solver1.N:
                     Found = False
                     u1 = np.zeros(Game.nu)
-                    for prev_iter in range(iter-1, max(-1, iter-4), -1):
-                        if prev_iter < 0: break
-                        prev_raw_data = LearnedData.RawData[prev_iter]
-                        if len(prev_raw_data.t) == 0: continue
-                        prev_t = np.asarray(prev_raw_data.t, dtype=float)
-                        prev_x = np.asarray(prev_raw_data.x, dtype=float)
-                        prev_u = np.asarray(prev_raw_data.u, dtype=float)
-                        for prev_t_i, prev_x_i, prev_u_i in zip(prev_t, prev_x, prev_u):
-                            if float(np.linalg.norm(prev_x_i - Game.x)) <= 1e-8:
-                                u1 = prev_u_i
-                                Found = True
-                                break
-                        if Found: break
+                    for dalpha1 in np.linspace(0.0, 0.5, 10)[1:]:
+                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True, force_alpha=alpha1-dalpha1)
                         
                                 
             # # Player 2 Controller
