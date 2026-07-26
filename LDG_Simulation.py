@@ -88,7 +88,7 @@ if __name__ == '__main__':
                         prev_x = np.asarray(prev_raw_data.x, dtype=float)
                         prev_u = np.asarray(prev_raw_data.u, dtype=float)
                         for prev_t_i, prev_x_i, prev_u_i in zip(prev_t, prev_x, prev_u):
-                            if float(ca.bilin(Solver1.Qk, prev_x_i - Game.x)) <= 1e-8:
+                            if float(np.linalg.norm(prev_x_i - Game.x)) <= 1e-8:
                                 u1 = prev_u_i
                                 Found = True
                                 break
