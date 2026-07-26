@@ -136,7 +136,7 @@ if __name__ == '__main__':
                 f"Game ended with an infeasible step at time {Game.t:2.2f} "
                 f"and iteration {iter}."
             )
-            raise ValueError(exception_message)
+            break
 
         # if iter > 1:
         #     alpha1 = max(0.0, alpha1-0.05)
