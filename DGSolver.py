@@ -692,12 +692,11 @@ class DGSolver:
             self.Solution.candidate_indices = candidate_indices.copy()
             self.Solution.candidate_terminal_states = candidate_terminal_states.copy()
             if hasattr(self.Solution, "u1") and hasattr(self.Solution, "u2"):
-                if u1_0 is None:
-                    t_vec = np.arange(self.N) * self.dt+self.Solution.t
-                    indx = np.argmin(np.abs(t_vec - t))
-                    self.Solution.indx = max(self.Solution.indx+1, indx)
-                    if self.Solution.indx >= self.N:
-                        return np.zeros(self.game.nu)
+                t_vec = np.arange(self.N) * self.dt+self.Solution.t
+                indx = np.argmin(np.abs(t_vec - t))
+                self.Solution.indx = max(self.Solution.indx+1, indx)
+                if self.Solution.indx >= self.N:
+                    return np.zeros(self.game.nu)
                 return np.concatenate(
                     (self.Solution.u1[self.Solution.indx], self.Solution.u2[self.Solution.indx])
                 )
