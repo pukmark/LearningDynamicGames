@@ -117,7 +117,7 @@ def rebuild_analyzed_data(
         ):
             if any(
                 ca.bilin(solver.proximity_Q, saved_state - state)
-                < solver.proximity_minval
+                < 1e-9
                 for saved_state in analyzed_data.state
             ):
                 continue
