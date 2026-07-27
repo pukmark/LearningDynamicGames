@@ -567,7 +567,7 @@ class DGSolver:
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         if not use_all_terminal_points:
             candidate_indices = np.where(
-                (Cost2Go <= prev_cost2go+1.0)
+                (Cost2Go <= prev_cost2go+0.1)
                 & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
                 # & (sample_times > previous_sample_time-2*self.dt)
                 # & (sample_times > t)
