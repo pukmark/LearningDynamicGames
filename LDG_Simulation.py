@@ -71,7 +71,8 @@ if __name__ == '__main__':
                     Solver1.Solution.indx += 1
                     u1 = np.concatenate( (Solver1.Solution.u1[Solver1.Solution.indx],Solver1.Solution.u2[Solver1.Solution.indx]))
                 else:
-                    if not Solver1.Solution.success and Solver1.Solution.indx >= int(0.8 * Solver1.N):
+                    indx = getattr(Solver1.Solution, "indx", 0)
+                    if not Solver1.Solution.success and indx >= int(0.8 * Solver1.N):
                         u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
                     else:
                         u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
