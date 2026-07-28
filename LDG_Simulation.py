@@ -9,11 +9,13 @@ from LDG_Simulation_aux import (
     append_terminal_learned_state,
     arrival_times,
     init_learned_data,
+    is_shared_constraint_active,
     load_learned_data,
     player_state,
     rebuild_analyzed_data,
     record_learned_state,
     save_learned_data,
+    should_reduce_alpha,
 )
 from SimulationPlot import *
 
@@ -56,6 +58,7 @@ if __name__ == '__main__':
         Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
         EndGame = False
         current_cost1 = 0.0
+        shared_constraint_active = False
         while not EndGame:
             if iter == 0:
                 u1 = Game.SimpleController()
@@ -100,7 +103,9 @@ if __name__ == '__main__':
             current_cost1 += float(Solver1.l1(Game.x[:Game.nx1], u1[:Game.nu1]))
             
             u = np.concatenate((u1[0:2], u2[2:]))
+            shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             GameFlag = Game.step(u=u)
+            shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             plot_simulation(Game, Solver1, Solver2, LearnedData)
             
             record_learned_state(LearnedData, Game, iter, alpha1)
@@ -144,6 +149,16 @@ if __name__ == '__main__':
             iter,
             Game,
             Solver1,)
+
+        LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
+        if iter > 0 and should_reduce_alpha(
+            LearnedData.RawData[iter - 1].p1_total_cost,
+            LearnedData.RawData[iter].p1_total_cost,
+            shared_constraint_active,
+            max_relative_drop = 0.01
+        ):
+            alpha1 = max(0.0, alpha1 - 0.05)
+            print(f"Reduced alpha1 to {alpha1:.2f}")
         
         Solver2.Solution.success = False
 

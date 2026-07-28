@@ -86,6 +86,44 @@ def arrival_time_difference(history, start_time, xf, nx1, tolerance):
     return float(p1_arrival_time - p2_arrival_time)
 
 
+def is_shared_constraint_active(game, state, control, tolerance=None):
+    """Return whether any shared-constraint residual is near zero."""
+    if tolerance is None:
+        tolerance = game.eps
+
+    residuals = game.f_shared(
+        np.asarray(state, dtype=float),
+        np.asarray(control[:game.nu1], dtype=float),
+        np.asarray(control[game.nu1:], dtype=float),
+    )
+    if not isinstance(residuals, tuple):
+        residuals = (residuals,)
+
+    return any(
+        np.any(np.abs(np.asarray(residual, dtype=float)) <= tolerance)
+        for residual in residuals
+    )
+
+
+def should_reduce_alpha(
+    previous_cost,
+    current_cost,
+    shared_constraint_active,
+    max_relative_drop=0.01,
+):
+    """Return whether cost improvement is at most the requested fraction."""
+    if shared_constraint_active:
+        return False
+
+    previous_cost = float(previous_cost)
+    current_cost = float(current_cost)
+    if not (np.isfinite(previous_cost) and np.isfinite(current_cost)):
+        return False
+
+    cost_drop = previous_cost - current_cost
+    return cost_drop <= max_relative_drop * abs(previous_cost)
+
+
 def rebuild_analyzed_data(
     learned_data,
     current_iteration,
