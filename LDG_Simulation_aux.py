@@ -53,7 +53,7 @@ def init_analyzed_data():
 
 
 def arrival_times(history, start_time, x1f, x2f, nx1, tolerance):
-    """Return P1 and P2 arrival times from start_time onward."""
+    """Return when each player enters and subsequently remains near its target."""
     times = history["t"]
     states = history["x"]
     target1_position = np.asarray(x1f, dtype=float).reshape(-1)[:2]
@@ -61,9 +61,15 @@ def arrival_times(history, start_time, x1f, x2f, nx1, tolerance):
     future = times >= start_time
 
     player_arrival_times = []
-    for position_indices, target_position in zip(([0, 1], [nx1, nx1 + 1]), (target1_position, target2_position)):
+    for position_indices, target_position in zip(
+        ([0, 1], [nx1, nx1 + 1]),
+        (target1_position, target2_position),
+    ):
         distance = np.linalg.norm(states[:, position_indices] - target_position, axis=1)
-        arrivals = np.flatnonzero(future & (distance <= tolerance))
+        stays_within_tolerance = np.logical_and.accumulate(
+            (distance <= tolerance)[::-1]
+        )[::-1]
+        arrivals = np.flatnonzero(future & stays_within_tolerance)
         if arrivals.size == 0:
             player_arrival_times.append(np.nan)
             continue
