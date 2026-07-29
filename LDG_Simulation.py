@@ -115,6 +115,11 @@ if __name__ == '__main__':
 
             player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f))
             player2_distance = float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f))
+            
+            if player1_distance <= 10*Solver1.proximity_minval:
+                Game.x[:Game.nx1] = Game.x1f.copy()
+            if player2_distance <= 10*Solver2.proximity_minval:
+                Game.x[Game.nx1:] = Game.x2f.copy()
 
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
