@@ -716,7 +716,7 @@ class DGSolver:
         cost = 0.0
         target = np.asarray(self.x1f, dtype=float).reshape(-1)
         for k in range(self.N):
-            cost += float(self.l1(solution.x1[k], solution.u1[k]))
+            cost += float(self.l1(solution.x1[k], solution.u1[k], solution.x2[k], solution.u2[k]))
         cost_to_go = np.asarray(learned_data.AnalyzedData.Cost2Go, dtype=float).reshape(-1)
         weights = np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1) if solution.ai_xf_vec.shape[0]>1 else np.asarray(1, dtype=float).reshape(-1)
         return cost + float(cost_to_go @ weights)
