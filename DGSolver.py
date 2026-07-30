@@ -164,7 +164,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, x1f, x2f, 
-                       dt=0.1, horizon=15, 
+                       dt=0.1, horizon=10, 
                        alpha=0.5,
                        R1 = 0.05,
                        R2 = 0.05,
@@ -222,9 +222,6 @@ class DGSolver:
         
         self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
         self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
-
-
-
 
         
         self.Solution = SimpleNamespace()

@@ -38,7 +38,7 @@ max_workers = max(1, int(os.cpu_count() * 0.4))
 
 if __name__ == '__main__':
     
-    x0 = np.array( player_state(0.5-L/2, 1.5, dynamics_type=dynamics_type) + player_state(L/2-0.5, -1.5, dynamics_type=dynamics_type))
+    x0 = np.array( player_state(-1.2, 1.5, dynamics_type=dynamics_type) + player_state(1.2, -1.5, dynamics_type=dynamics_type))
     alpha1, alpha2 = 1.0, 0.46
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
