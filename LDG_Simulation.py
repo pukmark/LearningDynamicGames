@@ -77,7 +77,8 @@ if __name__ == '__main__':
                     else:
                         u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
 
-                if Solver1.Solution.indx >= Solver1.N:
+                indx = getattr(Solver1.Solution, "indx", 0)
+                if indx >= Solver1.N:
                     Found = False
                     u1 = np.zeros(Game.nu)
                     for dalpha1 in np.linspace(0.0, 0.5, 10)[1:]:
@@ -101,7 +102,7 @@ if __name__ == '__main__':
                 u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=True)
 
             # calculate current cost for player 1:
-            current_cost1 += float(Solver1.l1(Game.x[:Game.nx1], u1[:Game.nu1]))
+            current_cost1 += float(Solver1.l1(Game.x[:Game.nx1], u1[:Game.nu1], Game.x[Game.nx1:], u2[Game.nu1:]))
             
             u = np.concatenate((u1[0:2], u2[2:]))
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)

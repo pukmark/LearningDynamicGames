@@ -52,7 +52,7 @@ def _player1_executed_cost(states, inputs, game, solver):
 
     total_cost = 0.0
     for state, control in zip(states[:-2], inputs[:-1]):
-        total_cost += float(solver.l1(state[:game.nx1], control[:game.nu1]))
+        total_cost += float(solver.l1(state[:game.nx1], control[:game.nu1], state[game.nx1:], control[game.nu1:]))
     return total_cost
 
 
@@ -241,14 +241,14 @@ def plot_simulation_init(game):
     ax_cost.set_ylabel("total cost-to-go")
     ax_cost.set_title("Player total cost-to-go by iteration")
     ax_cost.grid(True, axis="y", alpha=0.3)
-    ax_cost.legend(
-        handles=(
-            Patch(facecolor="C0", label="P1 completed"),
-            Patch(facecolor="C1", label="P2 completed"),
-            Patch(facecolor="C4", label="P1 current predicted"),
-        ),
-        loc="best",
-    )
+    # ax_cost.legend(
+    #     handles=(
+    #         Patch(facecolor="C0", label="P1 completed"),
+    #         Patch(facecolor="C1", label="P2 completed"),
+    #         Patch(facecolor="C4", label="P1 current predicted"),
+    #     ),
+    #     loc="best",
+    # )
 
     lines["p1_arrival_time"], = ax_arrival.plot(
         [], [], "C0o-", label="P1 arrival time"

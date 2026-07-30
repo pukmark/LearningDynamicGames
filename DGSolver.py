@@ -220,8 +220,8 @@ class DGSolver:
         time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) <= self.proximity_minval, 0.0, 1.0)
         time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) <= self.proximity_minval, 0.0, 1.0)
         
-        self.l1 = ca.Function('l1', [x1, u1], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target])
-        self.l2 = ca.Function('l2', [x2, u2], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target])
+        self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target - 0.1*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*np.eye(self.game.nu2), u2)-time2_to_target)])
+        self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target - 0.1*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*np.eye(self.game.nu1), u1)-time1_to_target)])
 
         
         self.Solution = SimpleNamespace()
@@ -241,7 +241,12 @@ class DGSolver:
         x1 = ca.SX.sym('x1',self.N+1, self.game.nx1)
         u1 = ca.SX.sym('u1',self.N, self.game.nu1)
         x1_0 = ca.SX.sym('x1_0',1, self.game.nx1)
+        # Player 2 trajectory variables over the horizon.
+        x2 = ca.SX.sym('x2', self.N+1, self.game.nx2)
+        u2 = ca.SX.sym('u2', self.N, self.game.nu2)
+        x2_0 = ca.SX.sym('x2_0', 1, self.game.nx2)
         alpha_vec = ca.SX.sym('alpha_vec', self.N+1)
+        # The terminal state is a convex combination of the sampled dataset, with weights ai_xf.
         if Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
             ai_xf = ca.SX.sym('ai_xf', Terminal_Safe_Set.state.shape[0])
         else:
@@ -256,7 +261,7 @@ class DGSolver:
         # Define The first player lagrangian:
         L1 = 0
         for k in range(self.N):
-            L1 += self.l1(x1[k,:], u1[k,:])
+            L1 += self.l1(x1[k,:], u1[k,:], x2[k,:], u2[k,:])
             
         if Terminal_Safe_Set is not None:
             if Terminal_Safe_Set.state.shape[0] > 1:
@@ -264,7 +269,8 @@ class DGSolver:
             else:
                 L1 += Terminal_Safe_Set.Cost2Go
         else:
-            L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape))
+            L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape), x2[self.N,:], np.zeros_like(u2[0,:].shape))
+            
         # Player 1 Dynamics:
         h = []
         n_mu = 0
@@ -347,18 +353,14 @@ class DGSolver:
         p_vec.append(p1_ph)
         lambda_vec.append(lambda_1)
 
-        # Player 2 trajectory variables over the horizon.
-        x2 = ca.SX.sym('x2', self.N+1, self.game.nx2)
-        u2 = ca.SX.sym('u2', self.N, self.game.nu2)
-        x2_0 = ca.SX.sym('x2_0', 1, self.game.nx2)
-
+        # Second Player Lagrangian and Constraints:
         A2, B2 = self._discrete_player_dynamics(self.game.nx2)
-
+        
         # Define the second player lagrangian using the same quadratic structure.
         L2 = 0
         for k in range(self.N):
-            L2 += self.l2(x2[k, :], u2[k, :])
-        L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape))
+            L2 += self.l2(x2[k, :], u2[k, :], x1[k, :], u1[k, :])
+        L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
         h = []
