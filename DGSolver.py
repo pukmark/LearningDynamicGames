@@ -272,7 +272,7 @@ class DGSolver:
                 L1 += Terminal_Safe_Set.Cost2Go
         else:
             L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape), x2[self.N,:], np.zeros_like(u2[0,:].shape))
-        L1 += 1e5*x1f_slack**2
+        L1 += 1e8*x1f_slack**2
             
         # Player 1 Dynamics:
         h = []
@@ -364,7 +364,7 @@ class DGSolver:
         for k in range(self.N):
             L2 += self.l2(x2[k, :], u2[k, :], x1[k, :], u1[k, :])
         L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
-        L2 += 1e5*x2f_slack**2
+        L2 += 1e8*x2f_slack**2
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
         h = []
