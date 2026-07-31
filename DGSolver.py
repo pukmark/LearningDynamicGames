@@ -169,7 +169,7 @@ class DGSolver:
                        R1 = 0.05,
                        R2 = 0.05,
                        LearnedData = None, 
-                       p_tol=1e-5,
+                       p_tol=1e-7,
                        max_workers = 1,
                        verbose = False, 
                        options=None,
@@ -241,10 +241,12 @@ class DGSolver:
         x1 = ca.SX.sym('x1',self.N+1, self.game.nx1)
         u1 = ca.SX.sym('u1',self.N, self.game.nu1)
         x1_0 = ca.SX.sym('x1_0',1, self.game.nx1)
+        x1f_slack = ca.SX.sym('x1f_slack', 1, 1)
         # Player 2 trajectory variables over the horizon.
         x2 = ca.SX.sym('x2', self.N+1, self.game.nx2)
         u2 = ca.SX.sym('u2', self.N, self.game.nu2)
         x2_0 = ca.SX.sym('x2_0', 1, self.game.nx2)
+        x2f_slack = ca.SX.sym('x2f_slack', 1, 1)
         alpha_vec = ca.SX.sym('alpha_vec', self.N+1)
         # The terminal state is a convex combination of the sampled dataset, with weights ai_xf.
         if Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
@@ -270,6 +272,7 @@ class DGSolver:
                 L1 += Terminal_Safe_Set.Cost2Go
         else:
             L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape), x2[self.N,:], np.zeros_like(u2[0,:].shape))
+        L1 += 1e5*x1f_slack**2
             
         # Player 1 Dynamics:
         h = []
@@ -280,15 +283,15 @@ class DGSolver:
             else:
                 h.append(x1[k,:].T - A1@x1[k-1,:].T - B1@u1[k-1,:].T)
             n_mu += h[-1].shape[0]
-                    
-        # Final joint state is a convex combination of the smapled dataset
+
+        # Final joint state is a convex combination of the sampled dataset
         if Terminal_Safe_Set is not None:
             if Terminal_Safe_Set.state.shape[0] > 1:
                 h.append(1.0 - ca.sum1(ai_xf))
                 n_mu += h[-1].shape[0]
                 h.append(ca.mtimes(Terminal_Safe_Set.state.T[:self.game.nx1,:], ai_xf) - x1[self.N,:].T)
             else:
-                h.append(Terminal_Safe_Set.state.T[:self.game.nx1,:] - x1[self.N,:].T)
+                h.append(Terminal_Safe_Set.state.T[:self.game.nx1,:] - x1[self.N,:].T + x1f_slack)
             n_mu += h[-1].shape[0]
             
         
@@ -361,6 +364,7 @@ class DGSolver:
         for k in range(self.N):
             L2 += self.l2(x2[k, :], u2[k, :], x1[k, :], u1[k, :])
         L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
+        L2 += 1e5*x2f_slack**2
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
         h = []
@@ -381,7 +385,7 @@ class DGSolver:
             if Terminal_Safe_Set.state.shape[0] > 1:
                 h.append(ca.mtimes(Terminal_Safe_Set.state.T[self.game.nx1:,:], ai_xf) - x2[self.N,:].T)
             else:
-                h.append(Terminal_Safe_Set.state.T[self.game.nx1:,:] - x2[self.N,:].T)
+                h.append(Terminal_Safe_Set.state.T[self.game.nx1:,:] - x2[self.N,:].T + x2f_slack)
             n_mu += h[-1].shape[0]
 
         mu2 = ca.SX.sym('mu_2', n_mu)
@@ -471,12 +475,12 @@ class DGSolver:
         # Build Z vector and F and J functions:        
         Z_len = []
         Z = []
-        z1 = ca.vertcat(x1[:], u1[:], ai_xf[:])
+        z1 = ca.vertcat(x1[:], u1[:], ai_xf[:], x1f_slack)
         Z.append(z1)
-        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0]])
-        z2 = ca.vertcat(x2[:], u2[:])
+        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0], x1f_slack.shape[0]])
+        z2 = ca.vertcat(x2[:], u2[:], x2f_slack)
         Z.append(z2)
-        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0]])
+        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0], x2f_slack.shape[0]])
         Z.append(ca.vertcat(*mu_vec))
         Z_len.append(Z[-1].shape[0])
         Z.append(ca.vertcat(*lambda_vec))
@@ -813,8 +817,8 @@ class DGSolver:
         if u2.shape != (self.N, self.game.nu2):
             raise ValueError(f"u2_0 must have shape ({self.N}, {self.game.nu2})")
 
-        x1_len, u1_len, ai_len = self.Solver.Z_len[0]
-        x2_len, u2_len = self.Solver.Z_len[1]
+        x1_len, u1_len, ai_len, x1f_slack_len = self.Solver.Z_len[0]
+        x2_len, u2_len, x2f_slack_len = self.Solver.Z_len[1]
         mu_len = self.Solver.Z_len[2]
         lambda_len = self.Solver.Z_len[3]
         sigma_len = self.Solver.Z_len[4]
@@ -828,14 +832,18 @@ class DGSolver:
             x2[k + 1, :] = self.A2 @ x2[k, :].T + self.B2 @ u2[k, :].T
             
         ai_xf_vec = np.zeros((ai_len,1))
+        x1f_slack = np.zeros((x1f_slack_len,1))
+        x2f_slack = np.zeros((x2f_slack_len,1))
 
         z0 = np.concatenate(
             (
                 x1.reshape(x1_len, order="F"),
                 u1.reshape(u1_len, order="F"),
                 ai_xf_vec.reshape(ai_len, order="F"),
+                x1f_slack.reshape(x1f_slack.shape[0], order="F"),
                 x2.reshape(x2_len, order="F"),
                 u2.reshape(u2_len, order="F"),
+                x2f_slack.reshape(x2f_slack.shape[0], order="F"),
                 np.zeros(mu_len),
                 np.zeros(lambda_len),
                 np.zeros(sigma_len),
@@ -941,8 +949,8 @@ class DGSolver:
             )
 
         i = 0
-        x1_len, u1_len, ai_len = self.Solver.Z_len[0]
-        x2_len, u2_len = self.Solver.Z_len[1]
+        x1_len, u1_len, ai_len, x1f_slack_len = self.Solver.Z_len[0]
+        x2_len, u2_len, x2f_slack_len = self.Solver.Z_len[1]
         mu_len = self.Solver.Z_len[2]
         lambda_len = self.Solver.Z_len[3]
         sigma_len = self.Solver.Z_len[4]
@@ -955,10 +963,14 @@ class DGSolver:
         if ai_len > 0:
             ai_xf_vec = z[i:i + ai_len].reshape(ai_len, 1, order="F")
             i += ai_len
+        x1f_slack = z[i:i + x1f_slack_len].reshape(x1f_slack_len, 1, order="F")
+        i += x1f_slack_len
         x2 = z[i:i + x2_len].reshape(self.N + 1, self.game.nx2, order="F")
         i += x2_len
         u2 = z[i:i + u2_len].reshape(self.N, self.game.nu2, order="F")
         i += u2_len
+        x2f_slack = z[i:i + x2f_slack_len].reshape(x2f_slack_len, 1, order="F")
+        i += x2f_slack_len
         mu = z[i:i + mu_len]
         i += mu_len
         lambdas = z[i:i + lambda_len]
@@ -988,6 +1000,8 @@ class DGSolver:
             self.Solution.a_set = a_set
             self.Solution.x0 = x0
             self.Solution.indx = 0
+            self.Solution.x1f_slack = x1f_slack
+            self.Solution.x2f_slack = x2f_slack
         elif hasattr(self.Solution, "indx"):
             self.Solution.success = bool(success)
             if last_attempted_solution:

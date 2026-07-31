@@ -210,14 +210,24 @@ class GameDynamics:
 
         x = self.x
         dt = self.dt
+        x_next = np.zeros_like(x)
 
         # Classical fourth-order Runge-Kutta integration with constant input u.
-        k1 = self.dynamics(x, u)
-        k2 = self.dynamics(x + 0.5 * dt * k1, u)
-        k3 = self.dynamics(x + 0.5 * dt * k2, u)
-        k4 = self.dynamics(x + dt * k3, u)
+        # k1 = self.dynamics(x, u)
+        # k2 = self.dynamics(x + 0.5 * dt * k1, u)
+        # k3 = self.dynamics(x + 0.5 * dt * k2, u)
+        # k4 = self.dynamics(x + dt * k3, u)
 
-        self.x = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        # self.x = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        x_next[0] = x[0] + dt * x[2] + 0.5 * dt**2 * u[0]
+        x_next[1] = x[1] + dt * x[3] + 0.5 * dt**2 * u[1]
+        x_next[2] = x[2] + dt * u[0]
+        x_next[3] = x[3] + dt * u[1]
+        x_next[4] = x[4] + dt * x[6] + 0.5 * dt**2 * u[2]
+        x_next[5] = x[5] + dt * x[7] + 0.5 * dt**2 * u[3]
+        x_next[6] = x[6] + dt * u[2]
+        x_next[7] = x[7] + dt * u[3]
+        self.x = x_next
         self.t += dt
 
         # Check axis-aligned position bounds for both players.
