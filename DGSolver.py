@@ -241,18 +241,22 @@ class DGSolver:
         x1 = ca.SX.sym('x1',self.N+1, self.game.nx1)
         u1 = ca.SX.sym('u1',self.N, self.game.nu1)
         x1_0 = ca.SX.sym('x1_0',1, self.game.nx1)
-        x1f_slack = ca.SX.sym('x1f_slack', 1, self.game.nx1)
+        
         # Player 2 trajectory variables over the horizon.
         x2 = ca.SX.sym('x2', self.N+1, self.game.nx2)
         u2 = ca.SX.sym('u2', self.N, self.game.nu2)
         x2_0 = ca.SX.sym('x2_0', 1, self.game.nx2)
-        x2f_slack = ca.SX.sym('x2f_slack', 1, self.game.nx2)
+        
         alpha_vec = ca.SX.sym('alpha_vec', self.N+1)
         # The terminal state is a convex combination of the sampled dataset, with weights ai_xf.
         if Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
             ai_xf = ca.SX.sym('ai_xf', Terminal_Safe_Set.state.shape[0])
+            x1f_slack = ca.SX.sym('x1f_slack', self.game.nx1, 1)
+            x2f_slack = ca.SX.sym('x2f_slack', self.game.nx2, 1)
         else:
             ai_xf = []
+            x1f_slack = []
+            x2f_slack = []
 
         A1, B1 = self._discrete_player_dynamics(self.game.nx1)
 
@@ -477,10 +481,10 @@ class DGSolver:
         Z = []
         z1 = ca.vertcat(x1[:], u1[:], ai_xf[:], x1f_slack[:])
         Z.append(z1)
-        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0], x1f_slack[:].shape[0]])
+        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0], ca.vertcat(x1f_slack[:]).shape[0]])
         z2 = ca.vertcat(x2[:], u2[:], x2f_slack[:])
         Z.append(z2)
-        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0], x2f_slack[:].shape[0]])
+        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0], ca.vertcat(x2f_slack[:]).shape[0]])
         Z.append(ca.vertcat(*mu_vec))
         Z_len.append(Z[-1].shape[0])
         Z.append(ca.vertcat(*lambda_vec))
