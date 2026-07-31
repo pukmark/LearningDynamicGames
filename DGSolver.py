@@ -241,12 +241,12 @@ class DGSolver:
         x1 = ca.SX.sym('x1',self.N+1, self.game.nx1)
         u1 = ca.SX.sym('u1',self.N, self.game.nu1)
         x1_0 = ca.SX.sym('x1_0',1, self.game.nx1)
-        x1f_slack = ca.SX.sym('x1f_slack', 1, 1)
+        x1f_slack = ca.SX.sym('x1f_slack', 1, self.game.nx1)
         # Player 2 trajectory variables over the horizon.
         x2 = ca.SX.sym('x2', self.N+1, self.game.nx2)
         u2 = ca.SX.sym('u2', self.N, self.game.nu2)
         x2_0 = ca.SX.sym('x2_0', 1, self.game.nx2)
-        x2f_slack = ca.SX.sym('x2f_slack', 1, 1)
+        x2f_slack = ca.SX.sym('x2f_slack', 1, self.game.nx2)
         alpha_vec = ca.SX.sym('alpha_vec', self.N+1)
         # The terminal state is a convex combination of the sampled dataset, with weights ai_xf.
         if Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
@@ -272,7 +272,7 @@ class DGSolver:
                 L1 += Terminal_Safe_Set.Cost2Go
         else:
             L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape), x2[self.N,:], np.zeros_like(u2[0,:].shape))
-        L1 += 1e8*x1f_slack**2
+        L1 += 1e8*ca.sumsqr(x1f_slack)
             
         # Player 1 Dynamics:
         h = []
@@ -364,7 +364,7 @@ class DGSolver:
         for k in range(self.N):
             L2 += self.l2(x2[k, :], u2[k, :], x1[k, :], u1[k, :])
         L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
-        L2 += 1e8*x2f_slack**2
+        L2 += 1e8*ca.sumsqr(x2f_slack)
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
         h = []
@@ -455,7 +455,7 @@ class DGSolver:
         for k in range(self.N+1):
             if k<self.N:
                 f_val_k = self.game.f_shared(ca.horzcat(x1[k,:], x2[k,:]), u1[k,:], u2[k,:])
-            else:
+            elif Terminal_Safe_Set is None:
                 f_val_k = self.game.f_shared(ca.horzcat(x1[k,:], x2[k,:]), np.zeros_like(u1[0,:].shape), np.zeros_like(u2[0,:].shape))
             if not isinstance(f_val_k, tuple):
                 f_val_k = [f_val_k]
