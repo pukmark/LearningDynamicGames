@@ -475,12 +475,12 @@ class DGSolver:
         # Build Z vector and F and J functions:        
         Z_len = []
         Z = []
-        z1 = ca.vertcat(x1[:], u1[:], ai_xf[:], x1f_slack)
+        z1 = ca.vertcat(x1[:], u1[:], ai_xf[:], x1f_slack[:])
         Z.append(z1)
-        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0], x1f_slack.shape[0]])
-        z2 = ca.vertcat(x2[:], u2[:], x2f_slack)
+        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0], x1f_slack[:].shape[0]])
+        z2 = ca.vertcat(x2[:], u2[:], x2f_slack[:])
         Z.append(z2)
-        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0], x2f_slack.shape[0]])
+        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0], x2f_slack[:].shape[0]])
         Z.append(ca.vertcat(*mu_vec))
         Z_len.append(Z[-1].shape[0])
         Z.append(ca.vertcat(*lambda_vec))
