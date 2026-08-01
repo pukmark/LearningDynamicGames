@@ -55,7 +55,8 @@ if __name__ == '__main__':
 
     for iter in range(Game.Max_Iterations):
         Game.reset_game()
-        Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers)
+        # Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf)
+        Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf)
         EndGame = False
         current_cost1 = 0.0
         shared_constraint_active = False
@@ -167,6 +168,7 @@ if __name__ == '__main__':
             alpha1 = max(0.0, alpha1 - 0.05)
             print(f"Reduced alpha1 to {alpha1:.2f}")
         
+        prev_p1_total_cost = LearnedData.RawData[iter].p1_total_cost
         Solver2.Solution.success = False
 
     save_learned_data(LearnedData, learned_data_path)

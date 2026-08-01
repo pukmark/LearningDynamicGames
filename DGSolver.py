@@ -169,7 +169,8 @@ class DGSolver:
                        R1 = 0.05,
                        R2 = 0.05,
                        LearnedData = None, 
-                       p_tol=1e-7,
+                       p_tol=1e-3,
+                       prev_best_cost=None,
                        max_workers = 1,
                        verbose = False, 
                        options=None,
@@ -227,6 +228,7 @@ class DGSolver:
         self.Solution = SimpleNamespace()
         self.Solution.success = False
         self.Solution.terminal_sample_state = None
+        self.Solution.player1_predicted_cost = prev_best_cost
         self.last_solve_success = False
 
     def build_solver(self, u2_0 = None, Terminal_Safe_Set = None):
@@ -347,6 +349,8 @@ class DGSolver:
                         ay - self.game.u_min,
                         self.game.u_max - ay,
                     ])
+        if Terminal_Safe_Set is not None:
+            p1.extend([1.0e-8 - x1f_slack**2])
                 
         # Final joint state is a convex combination of the smapled dataset
         if Terminal_Safe_Set is not None:
@@ -443,7 +447,8 @@ class DGSolver:
                         self.game.u_max - ay,
                     ]
                 )
-
+        if Terminal_Safe_Set is not None:
+            p2.extend([1.0e-8 - x2f_slack**2])
         p2_ph = ca.vertcat(*p2)
         lambda_2 = ca.SX.sym("lambda_2", p2_ph.shape[0])
 
