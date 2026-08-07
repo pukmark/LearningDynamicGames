@@ -73,17 +73,18 @@ if __name__ == '__main__':
                     u1 = np.concatenate( (Solver1.Solution.u1[Solver1.Solution.indx],Solver1.Solution.u2[Solver1.Solution.indx]))
                 else:
                     indx = getattr(Solver1.Solution, "indx", 0)
-                    if not Solver1.Solution.success and indx >= int(0.8 * Solver1.N):
+                    if not Solver1.Solution.success and indx >= int(Solver1.N):
                         u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
                     else:
                         u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
 
                 indx = getattr(Solver1.Solution, "indx", 0)
-                if indx >= Solver1.N:
+                if indx >= int(Solver1.N*0.5) and not Solver1.Solution.success:
                     Found = False
                     u1 = np.zeros(Game.nu)
-                    for dalpha1 in np.linspace(0.0, 0.5, 10)[1:]:
-                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True, forced_alpha=alpha1-dalpha1)
+                    for dN in [1, 2, 3]:
+                        Solver1_N = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf, N=Solver1.N+dN)
+                        u1 = Solver1_N.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
                         if Solver1.Solution.success:
                             Found = True
                             break

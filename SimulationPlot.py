@@ -143,8 +143,12 @@ def plot_simulation_init(game):
     )
     for separation_circle in separation_circles:
         ax_xy.add_patch(separation_circle)
-    lines["p1_prediction"], = ax_xy.plot([], [], "C0--", alpha=0.8, label="P1 prediction")
-    lines["p2_prediction"], = ax_xy.plot([], [], "C1--", alpha=0.8, label="P2 prediction")
+    lines["p1_prediction"], = ax_xy.plot(
+        [], [], "C0--", alpha=0.8, label="P1 prediction (Solver1)"
+    )
+    lines["p2_prediction"], = ax_xy.plot(
+        [], [], "C1--", alpha=0.8, label="P2 prediction (Solver2)"
+    )
     lines["p1_terminal_candidates"], = ax_xy.plot(
         [], [], "C0x", alpha=0.75, linestyle="none", label="P1 examined terminals"
     )
@@ -224,6 +228,12 @@ def plot_simulation_init(game):
     if ax_velocity is not None:
         lines["p1_v"], = ax_velocity.plot([], [], "C0-", label="P1 v")
         lines["p2_v"], = ax_velocity.plot([], [], "C1-", label="P2 v")
+        lines["p1_v_prediction"], = ax_velocity.plot(
+            [], [], "C0--", alpha=0.8, label="P1 v prediction (Solver1)"
+        )
+        lines["p2_v_prediction"], = ax_velocity.plot(
+            [], [], "C1--", alpha=0.8, label="P2 v prediction (Solver1)"
+        )
         lines["velocity_rss"], = ax_velocity.plot(
             [], [], "C2-", linewidth=2, label="velocity RSS"
         )
@@ -365,6 +375,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     analyzed_data = learned_data.AnalyzedData
     sampled_states = analyzed_data.state
     solution = getattr(solver1, "Solution", None)
+    solver2_solution = getattr(solver2, "Solution", None)
 
     candidate_terminal_states = np.asarray(
         getattr(solution, "candidate_terminal_states", []), dtype=float
@@ -557,15 +568,16 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     _set_tight_joint_limits(ax_xpos, joint_x_positions)
     _set_tight_joint_limits(ax_ypos, joint_y_positions)
 
-    if (
-        solution is not None
-        and hasattr(solution, "x1")
-        and hasattr(solution, "x2")
-    ):
+    if solution is not None and hasattr(solution, "x1"):
         lines["p1_prediction"].set_data(solution.x1[:, 0], solution.x1[:, 1])
-        lines["p2_prediction"].set_data(solution.x2[:, 0], solution.x2[:, 1])
     else:
         lines["p1_prediction"].set_data([], [])
+
+    if solver2_solution is not None and hasattr(solver2_solution, "x2"):
+        lines["p2_prediction"].set_data(
+            solver2_solution.x2[:, 0], solver2_solution.x2[:, 1]
+        )
+    else:
         lines["p2_prediction"].set_data([], [])
     lines["Target1"].set_data([game.x1f[0,0]],[game.x1f[0,1]])
     lines["Target2"].set_data([game.x2f[0,0]],[game.x2f[0,1]])
@@ -600,6 +612,39 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         lines["p1_v"].set_data(t, np.sqrt(np.sum(p1_velocity**2, axis=1)))
         lines["p2_v"].set_data(t, np.sqrt(np.sum(p2_velocity**2, axis=1)))
         lines["velocity_rss"].set_data(t, velocity_rss)
+
+        if solution is not None and hasattr(solution, "x1") and hasattr(solution, "x2"):
+            predicted_x1 = np.asarray(solution.x1, dtype=float)
+            predicted_x2 = np.asarray(solution.x2, dtype=float)
+            if (
+                predicted_x1.ndim == 2
+                and predicted_x2.ndim == 2
+                and predicted_x1.shape[1] >= 4
+                and predicted_x2.shape[1] >= 4
+            ):
+                p1_prediction_time = (
+                    float(getattr(solution, "t", game.t))
+                    + np.arange(predicted_x1.shape[0]) * game.dt
+                )
+                p2_prediction_time = (
+                    float(getattr(solution, "t", game.t))
+                    + np.arange(predicted_x2.shape[0]) * game.dt
+                )
+                lines["p1_v_prediction"].set_data(
+                    p1_prediction_time,
+                    np.linalg.norm(predicted_x1[:, 2:4], axis=1),
+                )
+                lines["p2_v_prediction"].set_data(
+                    p2_prediction_time,
+                    np.linalg.norm(predicted_x2[:, 2:4], axis=1),
+                )
+            else:
+                lines["p1_v_prediction"].set_data([], [])
+                lines["p2_v_prediction"].set_data([], [])
+        else:
+            lines["p1_v_prediction"].set_data([], [])
+            lines["p2_v_prediction"].set_data([], [])
+
         ax_velocity.relim()
         ax_velocity.autoscale_view()
         

@@ -169,7 +169,7 @@ class DGSolver:
                        R1 = 0.05,
                        R2 = 0.05,
                        LearnedData = None, 
-                       p_tol=1e-3,
+                       p_tol=1e-5,
                        prev_best_cost=None,
                        max_workers = 1,
                        verbose = False, 
@@ -206,6 +206,7 @@ class DGSolver:
         self.p_tol = p_tol
         self.verbose = verbose
         self.nms = True
+        self.use_slack = False
         
         self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
         self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
@@ -251,7 +252,7 @@ class DGSolver:
         
         alpha_vec = ca.SX.sym('alpha_vec', self.N+1)
         # The terminal state is a convex combination of the sampled dataset, with weights ai_xf.
-        if Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
+        if self.use_slack and Terminal_Safe_Set is not None and Terminal_Safe_Set.state.shape[0]:
             ai_xf = ca.SX.sym('ai_xf', Terminal_Safe_Set.state.shape[0])
             x1f_slack = ca.SX.sym('x1f_slack', self.game.nx1, 1)
             x2f_slack = ca.SX.sym('x2f_slack', self.game.nx2, 1)
@@ -296,8 +297,10 @@ class DGSolver:
                 h.append(1.0 - ca.sum1(ai_xf))
                 n_mu += h[-1].shape[0]
                 h.append(ca.mtimes(Terminal_Safe_Set.state.T[:self.game.nx1,:], ai_xf) - x1[self.N,:].T)
-            else:
+            elif self.use_slack:
                 h.append(Terminal_Safe_Set.state.T[:self.game.nx1,:] - x1[self.N,:].T + x1f_slack)
+            else:
+                h.append(Terminal_Safe_Set.state.T[:self.game.nx1,:] - x1[self.N,:].T)
             n_mu += h[-1].shape[0]
             
         
@@ -349,7 +352,7 @@ class DGSolver:
                         ay - self.game.u_min,
                         self.game.u_max - ay,
                     ])
-        if Terminal_Safe_Set is not None:
+        if self.use_slack and Terminal_Safe_Set is not None:
             p1.extend([1.0e-8 - x1f_slack**2])
                 
         # Final joint state is a convex combination of the smapled dataset
@@ -392,8 +395,10 @@ class DGSolver:
         if Terminal_Safe_Set is not None:
             if Terminal_Safe_Set.state.shape[0] > 1:
                 h.append(ca.mtimes(Terminal_Safe_Set.state.T[self.game.nx1:,:], ai_xf) - x2[self.N,:].T)
-            else:
+            elif self.use_slack:
                 h.append(Terminal_Safe_Set.state.T[self.game.nx1:,:] - x2[self.N,:].T + x2f_slack)
+            else:
+                h.append(Terminal_Safe_Set.state.T[self.game.nx1:,:] - x2[self.N,:].T)
             n_mu += h[-1].shape[0]
 
         mu2 = ca.SX.sym('mu_2', n_mu)
@@ -447,7 +452,7 @@ class DGSolver:
                         self.game.u_max - ay,
                     ]
                 )
-        if Terminal_Safe_Set is not None:
+        if self.use_slack and Terminal_Safe_Set is not None:
             p2.extend([1.0e-8 - x2f_slack**2])
         p2_ph = ca.vertcat(*p2)
         lambda_2 = ca.SX.sym("lambda_2", p2_ph.shape[0])
