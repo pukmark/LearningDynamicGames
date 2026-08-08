@@ -78,16 +78,16 @@ if __name__ == '__main__':
                     else:
                         u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
 
-                indx = getattr(Solver1.Solution, "indx", 0)
-                if indx >= int(Solver1.N*0.5) and not Solver1.Solution.success:
-                    Found = False
-                    u1 = np.zeros(Game.nu)
-                    for dN in [1, 2, 3]:
-                        Solver1_N = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf, horizon=Solver1.N+dN)
-                        u1 = Solver1_N.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
-                        if Solver1.Solution.success:
-                            Found = True
-                            break
+                        indx = getattr(Solver1.Solution, "indx", 0)
+                        if indx > 0:
+                            Found = False
+                            u1 = np.zeros(Game.nu)
+                            for dN in [1, 2, 3]:
+                                Solver1_N = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf, horizon=Solver1.N+dN)
+                                u1 = Solver1_N.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
+                                if Solver1_N.Solution.success:
+                                    Found = True
+                                    break
                         
                                 
             # # Player 2 Controller

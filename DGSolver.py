@@ -164,7 +164,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, x1f, x2f, 
-                       dt=0.1, horizon=10, 
+                       dt=0.1, horizon=7, 
                        alpha=0.5,
                        R1 = 0.05,
                        R2 = 0.05,
