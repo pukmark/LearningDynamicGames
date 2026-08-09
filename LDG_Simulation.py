@@ -87,6 +87,7 @@ if __name__ == '__main__':
                                 u1 = Solver1_N.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
                                 if Solver1_N.Solution.success:
                                     Found = True
+                                    Solver1.Solution = np.copy(Solver1_N.Solution)
                                     break
                         
                                 
