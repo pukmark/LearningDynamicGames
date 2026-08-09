@@ -45,6 +45,37 @@ def _set_tight_joint_limits(ax, points, margin_fraction=0.08):
         set_limits(value_min - padding, value_max + padding)
 
 
+def _predicted_player_distance(solution, dt):
+    """Return time and inter-player distance predicted by one solver."""
+    if solution is None or not hasattr(solution, "x1") or not hasattr(solution, "x2"):
+        return np.empty(0), np.empty(0)
+
+    predicted_x1 = np.asarray(solution.x1, dtype=float)
+    predicted_x2 = np.asarray(solution.x2, dtype=float)
+    if (
+        predicted_x1.ndim != 2
+        or predicted_x2.ndim != 2
+        or predicted_x1.shape[0] == 0
+        or predicted_x2.shape[0] == 0
+        or predicted_x1.shape[1] < 2
+        or predicted_x2.shape[1] < 2
+    ):
+        return np.empty(0), np.empty(0)
+
+    # The shorter prediction is held at its terminal state. In this project
+    # that extends P1 over P2's two additional prediction steps.
+    prediction_length = max(predicted_x1.shape[0], predicted_x2.shape[0])
+    x1_indices = np.minimum(np.arange(prediction_length), predicted_x1.shape[0] - 1)
+    x2_indices = np.minimum(np.arange(prediction_length), predicted_x2.shape[0] - 1)
+    distance = np.linalg.norm(
+        predicted_x1[x1_indices, :2] - predicted_x2[x2_indices, :2], axis=1
+    )
+    prediction_time = (
+        float(getattr(solution, "t", 0.0)) + np.arange(prediction_length) * dt
+    )
+    return prediction_time, distance
+
+
 def _player1_executed_cost(states, inputs, game, solver):
     """Return P1's accumulated stage cost for executed steps this iteration."""
     if len(inputs) <= 1:
@@ -108,10 +139,10 @@ def plot_simulation_init(game):
     ax_cost = fig.add_subplot(gs[-1, :])
     if game.is_single_integrator:
         ax_velocity = None
-        ax_arrival = fig.add_subplot(gs[3, 1])
+        ax_distance = fig.add_subplot(gs[3, 1])
     else:
         ax_velocity = fig.add_subplot(gs[3, 1])
-        ax_arrival = fig.add_subplot(gs[4, 1])
+        ax_distance = fig.add_subplot(gs[4, 1])
 
     lines = {}
     lines["p1_state"], = ax_xy.plot([], [], "C0-", label="P1 state")
@@ -245,7 +276,7 @@ def plot_simulation_init(game):
         ax_velocity.set_ylabel("velocity")
         ax_velocity.set_title("Player velocities and root sum square")
         ax_velocity.grid(True, alpha=0.3)
-        ax_velocity.legend(loc="best", ncol=2)
+        # ax_velocity.legend(loc="best", ncol=2)
 
     ax_cost.set_xlabel("iteration")
     ax_cost.set_ylabel("total cost-to-go")
@@ -260,21 +291,24 @@ def plot_simulation_init(game):
     #     loc="best",
     # )
 
-    lines["p1_arrival_time"], = ax_arrival.plot(
-        [], [], "C0o-", label="P1 arrival time"
+    lines["player_distance"], = ax_distance.plot(
+        [], [], "k-", linewidth=2, label="Executed distance"
     )
-    lines["p2_arrival_time"], = ax_arrival.plot(
-        [], [], "C1o-", label="P2 arrival time"
+    lines["solver1_predicted_distance"], = ax_distance.plot(
+        [], [], "C0--", linewidth=1.5, label="P1 solver prediction"
     )
-    lines["target_arrival_time"], = ax_arrival.plot(
-        [], [], "C2o-", label="Target arrival time"
+    lines["solver2_predicted_distance"], = ax_distance.plot(
+        [], [], "C1-.", linewidth=1.5, label="P2 solver prediction"
     )
-    ax_arrival.axhline(0.0, color="0.4", linestyle=":", linewidth=1)
-    ax_arrival.set_xlabel("completed iteration")
-    ax_arrival.set_ylabel("arrival time")
-    ax_arrival.set_title("Target arrival times")
-    ax_arrival.grid(True, alpha=0.3)
-    ax_arrival.legend(loc="best")
+    ax_distance.axhline(
+        game.d_sep, color="C3", linestyle=":", linewidth=1.5,
+        label="Minimum separation",
+    )
+    ax_distance.set_xlabel("time")
+    ax_distance.set_ylabel("distance")
+    ax_distance.set_title("Distance between players")
+    ax_distance.grid(True, alpha=0.3)
+    # ax_distance.legend(loc="best")
 
     fig.tight_layout()
     state = {
@@ -285,7 +319,7 @@ def plot_simulation_init(game):
         "ax_u": ax_u,
         "ax_velocity": ax_velocity,
         "ax_cost": ax_cost,
-        "ax_arrival": ax_arrival,
+        "ax_distance": ax_distance,
         "lines": lines,
         "separation_circles": separation_circles,
         "iteration": game.iteration,
@@ -312,7 +346,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ax_ypos = state["ax_ypos"]
     ax_velocity = state["ax_velocity"]
     ax_cost = state["ax_cost"]
-    ax_arrival = state["ax_arrival"]
+    ax_distance = state["ax_distance"]
 
     history = game.get_history()
     t = history["t"]
@@ -490,27 +524,25 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         ax_cost.autoscale_view(scalex=False)
         ax_cost.margins(y=0.12)
 
-    p1_completed_iterations = []
-    p1_arrival_times = []
-    p2_completed_iterations = []
-    p2_arrival_times = []
-    for iteration_index, iteration_data in enumerate(raw_data):
-        p1_arrival_time = getattr(iteration_data, "p1_arrival_time", np.nan)
-        p2_arrival_time = getattr(iteration_data, "p2_arrival_time", np.nan)
-        if np.isfinite(p1_arrival_time):
-            p1_completed_iterations.append(iteration_index + 1)
-            p1_arrival_times.append(p1_arrival_time)
-        if np.isfinite(p2_arrival_time):
-            p2_completed_iterations.append(iteration_index + 1)
-            p2_arrival_times.append(p2_arrival_time)
-    lines["p1_arrival_time"].set_data(
-        p1_completed_iterations, p1_arrival_times
+    executed_distance = np.linalg.norm(
+        x[:, :2] - x[:, p2_i:p2_i + 2], axis=1
     )
-    lines["p2_arrival_time"].set_data(
-        p2_completed_iterations, p2_arrival_times
+    lines["player_distance"].set_data(t, executed_distance)
+
+    solver1_prediction_time, solver1_predicted_distance = (
+        _predicted_player_distance(solution, game.dt)
     )
-    ax_arrival.relim()
-    ax_arrival.autoscale_view()
+    lines["solver1_predicted_distance"].set_data(
+        solver1_prediction_time, solver1_predicted_distance
+    )
+    solver2_prediction_time, solver2_predicted_distance = (
+        _predicted_player_distance(solver2_solution, game.dt)
+    )
+    lines["solver2_predicted_distance"].set_data(
+        solver2_prediction_time, solver2_predicted_distance
+    )
+    ax_distance.relim()
+    ax_distance.autoscale_view()
 
     if len(sampled_states) > 0:
         sampled_states = np.asarray(sampled_states, dtype=float)
