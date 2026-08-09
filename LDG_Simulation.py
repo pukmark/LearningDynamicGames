@@ -1,8 +1,8 @@
 import os
-from shutil import copy
 os.system('clear')
 import numpy as np
 import casadi as ca
+import copy
 
 from Game import GameDynamics
 from DGSolver import DGSolver, initialize_pathsolver_runtime
