@@ -582,11 +582,12 @@ class DGSolver:
         prev_cost2go = Cost2Go[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
+        distance_to_terminal = np.linalg.norm(states[:,:2] - x0[:2], axis=1)
         if not use_all_terminal_points:
             candidate_indices = np.where(
                 (Cost2Go <= prev_cost2go+1e-5)
                 & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
-                # & (sample_times > previous_sample_time-2*self.dt)
+                & (distance_to_terminal <= np.sqrt(2) * self.game.vx_max * self.N * self.dt)
                 # & (sample_times > t)
                 
             )[0]
@@ -690,7 +691,8 @@ class DGSolver:
                     )
         prev_player1_predicted_cost = getattr(previous_solution, "player1_predicted_cost", np.inf)
         for sample_index, candidate_cost, candidate_solution, candidate_solver in candidate_results:
-            if candidate_cost < best_cost and current_cost1 + candidate_cost <= prev_player1_predicted_cost + 1.0:
+            # if candidate_cost < best_cost and current_cost1 + candidate_cost <= prev_player1_predicted_cost:
+            if candidate_cost < best_cost:
                 best_cost = candidate_cost
                 best_solution = candidate_solution
                 best_solver = candidate_solver
