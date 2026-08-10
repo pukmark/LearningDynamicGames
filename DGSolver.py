@@ -164,7 +164,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, x1f, x2f, 
-                       dt=0.1, horizon=8, 
+                       dt=0.1, horizon=10, 
                        alpha=0.5,
                        R1 = 0.05,
                        R2 = 0.05,
@@ -818,7 +818,9 @@ class DGSolver:
 
         n_z = int(self.Solver.Z.shape[0])
         if u1_0 is None:
-            u1 = np.zeros((self.N, self.game.nu1))
+            u1 = np.ones((self.N, self.game.nu1))
+            u1[:,0] *= -self.game.u_max
+            u1[:,1] *= -self.game.u_max
         else:
             u1 = np.asarray(u1_0, dtype=float)
         if u1.shape != (self.N, self.game.nu1):
