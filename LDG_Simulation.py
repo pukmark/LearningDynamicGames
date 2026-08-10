@@ -28,7 +28,7 @@ dt = 0.1
 tf = 10.0
 dynamics_type = 2  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 15
+Niterations = 10
 arrival_tolerance = 0.01
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.0, -1.5, dynamics_type=dynamics_type)])
@@ -159,7 +159,8 @@ if __name__ == '__main__':
             LearnedData,
             iter,
             Game,
-            Solver1,)
+            Solver1,
+            itertions_to_use = max(5, int(max_workers/5)))
 
         LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
         if iter > 0 and should_reduce_alpha(
