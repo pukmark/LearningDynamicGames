@@ -56,8 +56,8 @@ if __name__ == '__main__':
 
     for iter in range(Game.Max_Iterations):
         Game.reset_game()
-        # Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf)
-        Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf)
+        Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf)
+        # Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf)
         EndGame = False
         current_cost1 = 0.0
         shared_constraint_active = False
@@ -84,7 +84,7 @@ if __name__ == '__main__':
                             Found = False
                             u1 = np.zeros(Game.nu)
                             for dN in [1, 2, 3]:
-                                Solver1_N = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf, horizon=Solver1.N+dN)
+                                Solver1_N = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=prev_p1_total_cost, horizon=Solver1.N+dN)
                                 u1 = Solver1_N.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
                                 if Solver1_N.Solution.success:
                                     Found = True
