@@ -169,7 +169,7 @@ class DGSolver:
                        R1 = 0.05,
                        R2 = 0.05,
                        LearnedData = None, 
-                       p_tol=1e-5,
+                       p_tol=1e-4,
                        prev_best_cost=None,
                        max_workers = 1,
                        verbose = False, 

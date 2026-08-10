@@ -543,6 +543,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     )
     ax_distance.relim()
     ax_distance.autoscale_view()
+    ax_distance.set_ylim(bottom=game.d_sep - 0.1, top=game.d_sep + 0.25)
 
     if len(sampled_states) > 0:
         sampled_states = np.asarray(sampled_states, dtype=float)
