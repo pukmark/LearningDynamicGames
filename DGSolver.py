@@ -585,7 +585,7 @@ class DGSolver:
         if not use_all_terminal_points:
             candidate_indices = np.where(
                 (Cost2Go <= prev_cost2go+1e-5)
-                & (sample_times <= previous_sample_time + (1.0 * self.N) * self.dt)
+                & (sample_times <= previous_sample_time + (1.25 * self.N) * self.dt)
                 # & (sample_times > previous_sample_time-2*self.dt)
                 # & (sample_times > t)
                 
@@ -823,6 +823,7 @@ class DGSolver:
             u1[:,1] *= -self.game.u_max
         else:
             u1 = np.asarray(u1_0, dtype=float)
+            u1 = u1[:self.N, :]
         if u1.shape != (self.N, self.game.nu1):
             raise ValueError(f"u1_0 must have shape ({self.N}, {self.game.nu1})")
 
@@ -832,6 +833,7 @@ class DGSolver:
             u2[:,1] *= self.game.u_max
         else:
             u2 = np.asarray(u2_0, dtype=float)
+            u2 = u2[:self.N, :]
         if u2.shape != (self.N, self.game.nu2):
             raise ValueError(f"u2_0 must have shape ({self.N}, {self.game.nu2})")
 
