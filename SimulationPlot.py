@@ -265,9 +265,6 @@ def plot_simulation_init(game):
         lines["p2_v_prediction"], = ax_velocity.plot(
             [], [], "C1--", alpha=0.8, label="P2 v prediction (Solver1)"
         )
-        lines["velocity_rss"], = ax_velocity.plot(
-            [], [], "C2-", linewidth=2, label="velocity RSS"
-        )
         ax_velocity.axhline(
             np.sqrt(game.vx_max**2 + game.vy_max**2), color="C4", linestyle=":", linewidth=2,
             label="RSS maximum",
@@ -639,12 +636,9 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     if ax_velocity is not None:
         p1_velocity = x[:, 2:4]
         p2_velocity = x[:, p2_i + 2:p2_i + 4]
-        velocity_rss = np.sqrt(
-            np.sum(p1_velocity**2, axis=1) + np.sum(p2_velocity**2, axis=1)
-        )
+
         lines["p1_v"].set_data(t, np.sqrt(np.sum(p1_velocity**2, axis=1)))
         lines["p2_v"].set_data(t, np.sqrt(np.sum(p2_velocity**2, axis=1)))
-        lines["velocity_rss"].set_data(t, velocity_rss)
 
         if solution is not None and hasattr(solution, "x1") and hasattr(solution, "x2"):
             predicted_x1 = np.asarray(solution.x1, dtype=float)
