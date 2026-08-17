@@ -35,6 +35,7 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # joint control output is applied to both players.
 cooperative_mode = True
 bargaining_gammas = np.linspace(0.25, 0.75, 3)
+bargaining_gammas = np.array([0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
 # the bootstrap use the previous completed totals minus costs executed so far.
 disagreement_costs = None
@@ -249,7 +250,7 @@ if __name__ == '__main__':
             iter,
             Game,
             Solver1,
-            iterations_to_use = max(3, int(max_workers/7)))
+            iterations_to_use = max(4, int(max_workers/6)))
 
         LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
         if not cooperative and iter > 0 and should_reduce_alpha(
