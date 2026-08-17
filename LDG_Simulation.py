@@ -16,6 +16,7 @@ from LDG_Simulation_aux import (
     player_state,
     rebuild_analyzed_data,
     record_learned_state,
+    remaining_cost_budget,
     save_learned_data,
     should_reduce_alpha,
 )
@@ -34,8 +35,8 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # joint control output is applied to both players.
 cooperative_mode = True
 bargaining_gammas = np.linspace(0.25, 0.75, 3)
-# Optional (b1_t, b2_t) costs-to-go. None uses the componentwise worst cost
-# among the feasible candidates at that step as a conservative disagreement.
+# Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
+# the bootstrap use the previous completed totals minus costs executed so far.
 disagreement_costs = None
 Niterations = 10
 arrival_tolerance = 0.01
@@ -58,7 +59,10 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--disagreement-costs", nargs=2, type=float, metavar=("B1", "B2"),
-        help="optional player costs-to-go defining the disagreement point",
+        help=(
+            "fixed costs-to-go override; by default each later iteration uses "
+            "the previous totals minus costs executed so far"
+        ),
     )
     args = parser.parse_args()
     cooperative = cooperative_mode or args.cooperative
@@ -102,6 +106,12 @@ if __name__ == '__main__':
         current_cost2 = 0.0
         shared_constraint_active = False
         while not EndGame:
+            active_disagreement_costs = baseline_costs
+            if cooperative and active_disagreement_costs is None and iter > 0:
+                active_disagreement_costs = remaining_cost_budget(
+                    (prev_p1_total_cost, prev_p2_total_cost),
+                    (current_cost1, current_cost2),
+                )
             if iter == 0 and not cooperative:
                 u1 = Game.SimpleController()
                 Solver2.Solution.success = False
@@ -119,11 +129,13 @@ if __name__ == '__main__':
                             Game.t, Game.x, current_cost1=current_cost1,
                             current_cost2=current_cost2,
                             use_all_terminal_points=True,
+                            disagreement_costs=active_disagreement_costs,
                         )
                     else:
                         u1 = Solver1.step(
                             Game.t, Game.x, current_cost1=current_cost1,
                             current_cost2=current_cost2,
+                            disagreement_costs=active_disagreement_costs,
                         )
                         if iter == 0:
                             u1_simple = Game.SimpleController()
@@ -149,6 +161,7 @@ if __name__ == '__main__':
                                 u1_N = Solver1_N.step(
                                     Game.t, Game.x, current_cost1=current_cost1,
                                     current_cost2=current_cost2,
+                                    disagreement_costs=active_disagreement_costs,
                                 )
                                 if Solver1_N.Solution.success:
                                     Found = True
@@ -249,6 +262,7 @@ if __name__ == '__main__':
             print(f"Reduced alpha1 to {alpha1:.2f}")
         
         prev_p1_total_cost = LearnedData.RawData[iter].p1_total_cost
+        prev_p2_total_cost = LearnedData.RawData[iter].p2_total_cost
         Solver2.Solution.success = False
 
     save_learned_data(LearnedData, learned_data_path)

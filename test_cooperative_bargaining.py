@@ -4,7 +4,11 @@ from types import SimpleNamespace
 import numpy as np
 
 from DGSolver import select_nash_bargaining_result
-from LDG_Simulation_aux import init_learned_data, rebuild_analyzed_data
+from LDG_Simulation_aux import (
+    init_learned_data,
+    rebuild_analyzed_data,
+    remaining_cost_budget,
+)
 
 
 class NashBargainingTests(unittest.TestCase):
@@ -43,6 +47,10 @@ class NashBargainingTests(unittest.TestCase):
 
 
 class LearnedCostToGoTests(unittest.TestCase):
+    def test_remaining_budget_subtracts_executed_cost_for_each_player(self):
+        budget = remaining_cost_budget((100.0, 80.0), (25.0, 30.0))
+        np.testing.assert_allclose(budget, [75.0, 50.0])
+
     def test_rebuild_stores_both_players_cost_to_go(self):
         learned_data = init_learned_data()
         learned_data.RawData.append(

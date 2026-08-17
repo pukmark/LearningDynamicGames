@@ -131,6 +131,22 @@ def should_reduce_alpha(
     return cost_drop <= max_relative_drop * abs(previous_cost)
 
 
+def remaining_cost_budget(previous_total_costs, executed_costs):
+    """Return the costs-to-go that keep both totals within the prior iteration.
+
+    The returned disagreement point is ``previous total - cost already
+    executed`` for each player and is therefore intended to be recomputed at
+    every receding-horizon step.
+    """
+    previous = np.asarray(previous_total_costs, dtype=float).reshape(-1)
+    executed = np.asarray(executed_costs, dtype=float).reshape(-1)
+    if previous.shape != (2,) or executed.shape != (2,):
+        raise ValueError("previous_total_costs and executed_costs must each contain two costs")
+    if not (np.all(np.isfinite(previous)) and np.all(np.isfinite(executed))):
+        raise ValueError("cost budgets require finite previous and executed costs")
+    return previous - executed
+
+
 def rebuild_analyzed_data(
     learned_data,
     current_iteration,
