@@ -72,7 +72,7 @@ if __name__ == '__main__':
     )
     
     x0 = np.array( player_state(-1.75, 1.5, dynamics_type=dynamics_type) + player_state(1.75, -1.5, dynamics_type=dynamics_type))
-    alpha1, alpha2 = 0.5, 0.46
+    alpha1, alpha2 = 0.5, 0.5
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
     LearnedData = init_learned_data()
@@ -125,6 +125,9 @@ if __name__ == '__main__':
                             Game.t, Game.x, current_cost1=current_cost1,
                             current_cost2=current_cost2,
                         )
+                        if iter == 0:
+                            u1_simple = Game.SimpleController()
+                            u1 = np.concatenate((u1_simple[0:2], u1[2:]))
 
                         indx = getattr(Solver1.Solution, "indx", 0)
                         if indx > 0:
