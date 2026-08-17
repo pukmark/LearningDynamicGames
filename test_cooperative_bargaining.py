@@ -23,6 +23,24 @@ class NashBargainingTests(unittest.TestCase):
             select_nash_bargaining_result(candidates, (10.0, 10.0))
         )
 
+    def test_player2_chooses_when_player1_cannot_improve(self):
+        candidates = [
+            (0, 0.2, 10.0, 8.0),
+            (1, 0.5, 10.0, 3.0),
+            (2, 0.8, 10.0, 6.0),
+        ]
+        selected = select_nash_bargaining_result(candidates, (10.0, 10.0))
+        self.assertEqual(selected[:2], (1, 0.5))
+
+    def test_player1_chooses_when_player2_cannot_improve(self):
+        candidates = [
+            (0, 0.2, 7.0, 10.0),
+            (1, 0.5, 2.0, 10.0),
+            (2, 0.8, 5.0, 10.0),
+        ]
+        selected = select_nash_bargaining_result(candidates, (10.0, 10.0))
+        self.assertEqual(selected[:2], (1, 0.5))
+
 
 class LearnedCostToGoTests(unittest.TestCase):
     def test_rebuild_stores_both_players_cost_to_go(self):

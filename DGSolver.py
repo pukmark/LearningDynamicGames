@@ -40,6 +40,10 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs):
 
     Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
     ``None`` is returned when the individually rational set is empty.
+
+    If one player cannot obtain a strictly positive improvement from any
+    acceptable agreement, the other player chooses its minimum-cost agreement.
+    This handles a zero Nash product without discarding useful cooperation.
     """
     baseline = np.asarray(disagreement_costs, dtype=float).reshape(-1)
     if baseline.shape != (2,) or not np.all(np.isfinite(baseline)):
@@ -51,11 +55,34 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs):
     ]
     if not acceptable:
         return None
+
+    improvement_tolerance = 1e-10
+    improvements = np.asarray(
+        [
+            (
+                max(0.0, baseline[0] - result[2]),
+                max(0.0, baseline[1] - result[3]),
+            )
+            for result in acceptable
+        ]
+    )
+    player1_can_improve = np.max(improvements[:, 0]) > improvement_tolerance
+    player2_can_improve = np.max(improvements[:, 1]) > improvement_tolerance
+
+    if not player1_can_improve and player2_can_improve:
+        return min(acceptable, key=lambda result: (result[3], result[2]))
+    if not player2_can_improve and player1_can_improve:
+        return min(acceptable, key=lambda result: (result[2], result[3]))
+    if not player1_can_improve and not player2_can_improve:
+        return min(acceptable, key=lambda result: (result[2] + result[3], result[2]))
+
     return max(
         acceptable,
         key=lambda result: (
-            (baseline[0] - result[2]) * (baseline[1] - result[3]),
-            (baseline[0] - result[2]) + (baseline[1] - result[3]),
+            max(0.0, baseline[0] - result[2])
+            * max(0.0, baseline[1] - result[3]),
+            max(0.0, baseline[0] - result[2])
+            + max(0.0, baseline[1] - result[3]),
             -result[2] - result[3],
         ),
     )
@@ -800,7 +827,9 @@ class DGSolver:
                 if baseline is not None:
                     best_solution.bargaining_gamma = gamma
                     best_solution.disagreement_costs = baseline.copy()
-                    best_solution.bargaining_improvements = baseline - np.array([cost1, cost2])
+                    best_solution.bargaining_improvements = np.maximum(
+                        baseline - np.array([cost1, cost2]), 0.0
+                    )
                     best_solution.nash_product = float(np.prod(best_solution.bargaining_improvements))
                 best_solution.terminal_workers = self.max_workers
                 if self.cooperative:
