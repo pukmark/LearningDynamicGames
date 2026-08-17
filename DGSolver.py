@@ -35,6 +35,15 @@ def is_symbolic_expr(z):
     return isinstance(z, (ca.SX, ca.MX)) and len(ca.symvar(z)) > 0
 
 
+def solution_has_no_interaction(solution, tolerance=1e-8):
+    """Return whether all shared-constraint multipliers are effectively zero."""
+    sigma = getattr(solution, "sigma", None)
+    if sigma is None:
+        return False
+    sigma = np.asarray(sigma, dtype=float).reshape(-1)
+    return sigma.size == 0 or np.all(np.abs(sigma) <= tolerance)
+
+
 def select_nash_bargaining_result(candidate_results, disagreement_costs):
     """Return the individually rational candidate with largest Nash product.
 
@@ -86,6 +95,26 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs):
             -result[2] - result[3],
         ),
     )
+
+
+def filter_monotonic_cost_candidates(
+    candidate_results,
+    executed_costs,
+    previous_iteration_costs,
+    tolerance=1e-10,
+):
+    """Keep candidates that do not worsen either player's prior total cost."""
+    executed = np.asarray(executed_costs, dtype=float).reshape(-1)
+    previous = np.asarray(previous_iteration_costs, dtype=float).reshape(-1)
+    if executed.shape != (2,) or previous.shape != (2,):
+        raise ValueError("executed and previous iteration costs must each contain two values")
+    if not (np.all(np.isfinite(executed)) and np.all(np.isfinite(previous))):
+        raise ValueError("monotonic cost limits require finite costs")
+    return [
+        result for result in candidate_results
+        if executed[0] + result[2] <= previous[0] + tolerance
+        and executed[1] + result[3] <= previous[1] + tolerance
+    ]
 
 def _resolve_julia_runtime():
     env_runtime = os.environ.get('JULIA_RUNTIME')
@@ -214,6 +243,72 @@ def _solve_sampled_terminal_candidate(
     except Exception as exc:
         return sample_index, forced_alpha, None, None, None, f"{type(exc).__name__}: {exc}"
 
+
+def _solve_sampled_terminal_gamma_sequence(
+    worker_solver,
+    candidate_data,
+    sample_index,
+    sample_number_start,
+    sample_count,
+    t,
+    x0,
+    gammas,
+    u1_0,
+    u2_0,
+    a_set,
+    proximity_factor,
+):
+    """Solve gamma values for one terminal state, stopping at zero interaction."""
+    solver = copy.copy(worker_solver)
+    initial_solution = copy.deepcopy(worker_solver.Solution)
+    solver.Solver = None
+    terminal_solver = None
+    results = []
+    for gamma_offset, gamma in enumerate(gammas):
+        solver.Solution = copy.deepcopy(initial_solution)
+        try:
+            solver._step_once(
+                t,
+                x0,
+                forced_alpha=gamma,
+                u1_0=u1_0,
+                u2_0=u2_0,
+                terminal_learned_data=candidate_data,
+                terminal_solver=terminal_solver,
+                precomputed_a_set=(a_set, proximity_factor),
+                sample_number=sample_number_start + gamma_offset,
+                sample_count=sample_count,
+            )
+            if terminal_solver is None:
+                terminal_solver = solver.Solver
+            if solver.last_solve_success:
+                result = (
+                    sample_index,
+                    gamma,
+                    solver._player1_cost(solver.Solution, candidate_data),
+                    solver._player2_cost(solver.Solution, candidate_data),
+                    copy.deepcopy(solver.Solution),
+                    None,
+                )
+            else:
+                result = (sample_index, gamma, None, None, None, None)
+        except Exception as exc:
+            result = (
+                sample_index, gamma, None, None, None,
+                f"{type(exc).__name__}: {exc}",
+            )
+        results.append(result)
+        solution = result[4]
+        if solution is not None and solution_has_no_interaction(
+            solution, worker_solver.sigma_zero_tolerance
+        ):
+            solution.gamma_independent = True
+            solution.skipped_bargaining_gammas = np.asarray(
+                gammas[gamma_offset + 1:], dtype=float
+            )
+            break
+    return results
+
 class DGSolver:
     """Basic structure for a dynamic game solver."""
 
@@ -231,7 +326,8 @@ class DGSolver:
                        constraint_mode="sampled_points",
                        cooperative=False,
                        bargaining_gammas=None,
-                       disagreement_costs=None):
+                       disagreement_costs=None,
+                       sigma_zero_tolerance=1e-8):
         if horizon <= 0:
             raise ValueError("horizon must be positive")
 
@@ -259,6 +355,9 @@ class DGSolver:
         ):
             raise ValueError("bargaining_gammas must contain values in [0, 1]")
         self.disagreement_costs = disagreement_costs
+        self.sigma_zero_tolerance = float(sigma_zero_tolerance)
+        if self.sigma_zero_tolerance < 0.0:
+            raise ValueError("sigma_zero_tolerance must be nonnegative")
         self.alpha_vec = alpha * np.ones((self.N+1,1))
         self.max_workers = max_workers
         self.options = options.copy() if options is not None else {}
@@ -637,7 +736,7 @@ class DGSolver:
     def step(self, t, x0, current_cost1=0.0, current_cost2=0.0,
              forced_alpha=None, u1_0=None, u2_0=None,
              last_attempted_solution=False, use_all_terminal_points=False,
-             disagreement_costs=None):
+             disagreement_costs=None, previous_iteration_costs=None):
         """Solve one step using the configured learned terminal-state mode."""
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
@@ -646,6 +745,7 @@ class DGSolver:
                 last_attempted_solution=last_attempted_solution,
                 use_all_terminal_points=use_all_terminal_points,
                 disagreement_costs=disagreement_costs,
+                previous_iteration_costs=previous_iteration_costs,
             )
         return self._step_once(
             t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
@@ -655,7 +755,7 @@ class DGSolver:
         self, t, x0, current_cost1=0.0, current_cost2=0.0,
         forced_alpha=None, u1_0=None, u2_0=None,
         last_attempted_solution=False, use_all_terminal_points=False,
-        disagreement_costs=None,
+        disagreement_costs=None, previous_iteration_costs=None,
     ):
         """Enumerate safe-set states and, in cooperative mode, bargaining weights."""
         analyzed = self.LearnedData.AnalyzedData
@@ -709,47 +809,56 @@ class DGSolver:
             else self.bargaining_gammas if self.cooperative
             else [None]
         )
-        jobs = [
-            (
-                sample_index,
-                candidate_data,
-                None if gamma is None else float(gamma),
-            )
-            for sample_index, candidate_data in candidate_data_by_index.items()
-            for gamma in gammas
-        ]
-        sample_count = len(jobs)
+        gammas = [None if gamma is None else float(gamma) for gamma in gammas]
+        sample_count = len(candidate_data_by_index) * len(gammas)
         if self.max_workers == 1:
-            for sample_number, (sample_index, candidate_data, gamma) in enumerate(jobs, start=1):
-                self.Solution = copy.deepcopy(previous_solution)
-                cache_key = (int(sample_index), gamma)
-                candidate_solver = self._sampled_solver_cache.get(cache_key)
-                self._step_once(
-                    t,
-                    x0,
-                    forced_alpha=gamma,
-                    u1_0=u1_0,
-                    u2_0=u2_0,
-                    last_attempted_solution=last_attempted_solution,
-                    terminal_learned_data=candidate_data,
-                    terminal_solver=candidate_solver,
-                    precomputed_a_set=(a_set, proximity_factor),
-                    sample_number=sample_number,
-                    sample_count=sample_count,
-                )
-                if candidate_solver is None:
-                    self._sampled_solver_cache[cache_key] = self.Solver
-                if self.last_solve_success:
+            sample_number = 0
+            for sample_index, candidate_data in candidate_data_by_index.items():
+                for gamma_offset, gamma in enumerate(gammas):
+                    sample_number += 1
+                    self.Solution = copy.deepcopy(previous_solution)
+                    cache_key = int(sample_index)
+                    candidate_solver = self._sampled_solver_cache.get(cache_key)
+                    self._step_once(
+                        t,
+                        x0,
+                        forced_alpha=gamma,
+                        u1_0=u1_0,
+                        u2_0=u2_0,
+                        last_attempted_solution=last_attempted_solution,
+                        terminal_learned_data=candidate_data,
+                        terminal_solver=candidate_solver,
+                        precomputed_a_set=(a_set, proximity_factor),
+                        sample_number=sample_number,
+                        sample_count=sample_count,
+                    )
+                    if candidate_solver is None:
+                        self._sampled_solver_cache[cache_key] = self.Solver
+                    if not self.last_solve_success:
+                        continue
+
+                    candidate_solution = copy.deepcopy(self.Solution)
+                    no_interaction = solution_has_no_interaction(
+                        candidate_solution, self.sigma_zero_tolerance
+                    )
+                    if no_interaction:
+                        candidate_solution.gamma_independent = True
+                        candidate_solution.skipped_bargaining_gammas = np.asarray(
+                            gammas[gamma_offset + 1:], dtype=float
+                        )
                     candidate_results.append(
                         (
                             sample_index,
                             gamma,
-                            self._player1_cost(self.Solution, candidate_data),
-                            self._player2_cost(self.Solution, candidate_data),
-                            copy.deepcopy(self.Solution),
+                            self._player1_cost(candidate_solution, candidate_data),
+                            self._player2_cost(candidate_solution, candidate_data),
+                            candidate_solution,
                             self.Solver,
                         )
                     )
+                    if no_interaction:
+                        sample_number += len(gammas) - gamma_offset - 1
+                        break
         elif self.max_workers > 1:
             worker_solver = copy.copy(self)
             worker_solver.Solution = copy.deepcopy(previous_solution)
@@ -759,42 +868,57 @@ class DGSolver:
             executor = _get_terminal_executor(self.max_workers)
             futures = {
                 executor.submit(
-                    _solve_sampled_terminal_candidate,
+                    _solve_sampled_terminal_gamma_sequence,
                     worker_solver,
                     candidate_data,
                     sample_index,
-                    sample_number,
+                    sample_offset * len(gammas) + 1,
                     sample_count,
                     t,
                     x0,
-                    gamma,
+                    gammas,
                     u1_0,
                     u2_0,
                     a_set,
                     proximity_factor,
-                ): (sample_index, gamma)
-                for sample_number, (sample_index, candidate_data, gamma) in enumerate(jobs, start=1)
+                ): sample_index
+                for sample_offset, (sample_index, candidate_data) in enumerate(
+                    candidate_data_by_index.items()
+                )
             }
             for future in as_completed(futures):
-                submitted_index, submitted_gamma = futures[future]
+                submitted_index = futures[future]
                 try:
-                    sample_index, gamma, cost1, cost2, solution, error = future.result()
+                    results = future.result()
                 except Exception as exc:
                     if self.verbose:
-                        gamma_text = "adaptive" if submitted_gamma is None else f"{submitted_gamma:.3f}"
                         print(
-                            f"Terminal sample {submitted_index}, gamma={gamma_text} worker failed: "
+                            f"Terminal sample {submitted_index} worker failed: "
                             f"{type(exc).__name__}: {exc}"
                         )
                     continue
-                if error is not None:
-                    if self.verbose:
-                        print(f"Terminal sample {sample_index} failed: {error}")
-                    continue
-                if solution is not None:
-                    candidate_results.append(
-                        (sample_index, gamma, cost1, cost2, solution, None)
-                    )
+                for sample_index, gamma, cost1, cost2, solution, error in results:
+                    if error is not None:
+                        if self.verbose:
+                            print(
+                                f"Terminal sample {sample_index}, gamma={gamma} failed: {error}"
+                            )
+                        continue
+                    if solution is not None:
+                        candidate_results.append(
+                            (sample_index, gamma, cost1, cost2, solution, None)
+                        )
+
+        monotonic_limits = None
+        if self.cooperative and previous_iteration_costs is not None:
+            monotonic_limits = np.asarray(
+                previous_iteration_costs, dtype=float
+            ).reshape(-1)
+            candidate_results = filter_monotonic_cost_candidates(
+                candidate_results,
+                (current_cost1, current_cost2),
+                monotonic_limits,
+            )
 
         baseline = None
         if self.cooperative and candidate_results:
@@ -824,6 +948,14 @@ class DGSolver:
                 best_solution.player2_cost = cost2
                 best_solution.player1_predicted_cost = current_cost1 + cost1
                 best_solution.player2_predicted_cost = current_cost2 + cost2
+                if monotonic_limits is not None:
+                    best_solution.previous_iteration_costs = monotonic_limits.copy()
+                    best_solution.monotonic_cost_margins = monotonic_limits - np.array(
+                        [
+                            best_solution.player1_predicted_cost,
+                            best_solution.player2_predicted_cost,
+                        ]
+                    )
                 if baseline is not None:
                     best_solution.bargaining_gamma = gamma
                     best_solution.disagreement_costs = baseline.copy()
@@ -840,6 +972,9 @@ class DGSolver:
             self.Solver = previous_solver
             self.last_solve_success = False
             self.Solution.success = False
+            if monotonic_limits is not None:
+                self.Solution.monotonic_rejection = True
+                self.Solution.previous_iteration_costs = monotonic_limits.copy()
             self.Solution.candidate_indices = candidate_indices.copy()
             self.Solution.candidate_terminal_states = candidate_terminal_states.copy()
             if hasattr(self.Solution, "u1") and hasattr(self.Solution, "u2"):

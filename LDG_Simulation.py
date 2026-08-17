@@ -107,6 +107,10 @@ if __name__ == '__main__':
         current_cost2 = 0.0
         shared_constraint_active = False
         while not EndGame:
+            previous_iteration_costs = (
+                (prev_p1_total_cost, prev_p2_total_cost)
+                if cooperative and iter > 0 else None
+            )
             active_disagreement_costs = baseline_costs
             if cooperative and active_disagreement_costs is None and iter > 0:
                 active_disagreement_costs = remaining_cost_budget(
@@ -133,12 +137,14 @@ if __name__ == '__main__':
                             current_cost2=current_cost2,
                             use_all_terminal_points=True,
                             disagreement_costs=active_disagreement_costs,
+                            previous_iteration_costs=previous_iteration_costs,
                         )
                     else:
                         u1 = Solver1.step(
                             Game.t, Game.x, current_cost1=current_cost1,
                             current_cost2=current_cost2,
                             disagreement_costs=active_disagreement_costs,
+                            previous_iteration_costs=previous_iteration_costs,
                         )
                         indx = getattr(Solver1.Solution, "indx", 0)
                         if indx > 0:
@@ -161,6 +167,7 @@ if __name__ == '__main__':
                                     Game.t, Game.x, current_cost1=current_cost1,
                                     current_cost2=current_cost2,
                                     disagreement_costs=active_disagreement_costs,
+                                    previous_iteration_costs=previous_iteration_costs,
                                 )
                                 if Solver1_N.Solution.success:
                                     Found = True

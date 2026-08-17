@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from DGSolver import select_nash_bargaining_result
+from DGSolver import (
+    _solve_sampled_terminal_gamma_sequence,
+    filter_monotonic_cost_candidates,
+    select_nash_bargaining_result,
+    solution_has_no_interaction,
+)
 from Game import GameDynamics
 from LDG_Simulation_aux import (
     init_learned_data,
@@ -13,6 +18,60 @@ from LDG_Simulation_aux import (
 
 
 class NashBargainingTests(unittest.TestCase):
+    def test_candidates_cannot_worsen_either_previous_iteration_total(self):
+        candidates = [
+            (0, 0.25, 50.0, 30.0),
+            (1, 0.50, 39.0, 41.0),
+            (2, 0.75, 39.0, 30.0),
+        ]
+        acceptable = filter_monotonic_cost_candidates(
+            candidates,
+            executed_costs=(10.0, 20.0),
+            previous_iteration_costs=(50.0, 55.0),
+        )
+        self.assertEqual([result[0] for result in acceptable], [2])
+
+    def test_zero_sigma_stops_remaining_gammas_for_terminal_state(self):
+        calls = []
+
+        class FakeSolver:
+            sigma_zero_tolerance = 1e-8
+            Solver = None
+            Solution = SimpleNamespace()
+
+            def _step_once(self, *args, forced_alpha=None, **kwargs):
+                calls.append(forced_alpha)
+                sigma = np.array([1.0]) if forced_alpha == 0.25 else np.zeros(2)
+                self.Solution = SimpleNamespace(sigma=sigma)
+                self.Solver = object()
+                self.last_solve_success = True
+
+            def _player1_cost(self, solution, candidate_data):
+                return 1.0
+
+            def _player2_cost(self, solution, candidate_data):
+                return 2.0
+
+        results = _solve_sampled_terminal_gamma_sequence(
+            FakeSolver(), None, 3, 1, 3, 0.0, np.zeros(1),
+            [0.25, 0.5, 0.75], None, None, None, 0.0,
+        )
+
+        self.assertEqual(calls, [0.25, 0.5])
+        self.assertEqual(len(results), 2)
+        self.assertTrue(results[-1][4].gamma_independent)
+        np.testing.assert_allclose(
+            results[-1][4].skipped_bargaining_gammas, [0.75]
+        )
+
+    def test_interaction_detection_uses_sigma_tolerance(self):
+        self.assertTrue(
+            solution_has_no_interaction(SimpleNamespace(sigma=[0.0, 1e-9]))
+        )
+        self.assertFalse(
+            solution_has_no_interaction(SimpleNamespace(sigma=[0.0, 1e-4]))
+        )
+
     def test_rejects_individually_unacceptable_candidates(self):
         candidates = [
             (0, 0.2, 2.0, 12.0),  # Player 2 rejects this candidate.
