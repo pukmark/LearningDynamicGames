@@ -1,48 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Patch
-from scipy.spatial import ConvexHull, QhullError
 
 eps = 1e-1
-
-
-def _set_joint_sample_plot(sample_line, hull_line, points):
-    if points.size == 0:
-        sample_line.set_data([], [])
-        hull_line.set_data([], [])
-        return
-
-    sample_line.set_data(points[:, 0], points[:, 1])
-
-    unique_points = np.unique(points, axis=0)
-    if unique_points.shape[0] < 3 or np.linalg.matrix_rank(unique_points - unique_points[0]) < 2:
-        hull_line.set_data([], [])
-        return
-
-    try:
-        hull = ConvexHull(unique_points)
-    except QhullError:
-        hull_line.set_data([], [])
-        return
-
-    hull_points = unique_points[np.r_[hull.vertices, hull.vertices[0]]]
-    hull_line.set_data(hull_points[:, 0], hull_points[:, 1])
-
-
-def _set_tight_joint_limits(ax, points, margin_fraction=0.08):
-    finite_points = points[np.isfinite(points).all(axis=1)]
-    if finite_points.size == 0:
-        return
-
-    for set_limits, values in (
-        (ax.set_xlim, finite_points[:, 0]),
-        (ax.set_ylim, finite_points[:, 1]),
-    ):
-        value_min = values.min()
-        value_max = values.max()
-        span = value_max - value_min
-        padding = span * margin_fraction if span > 0 else max(eps, abs(value_min) * margin_fraction)
-        set_limits(value_min - padding, value_max + padding)
 
 
 def _predicted_player_distance(solution, dt):
@@ -87,6 +47,24 @@ def _player1_executed_cost(states, inputs, game, solver):
     return total_cost
 
 
+def _player2_executed_cost(states, inputs, game, solver):
+    """Return P2's accumulated stage cost for executed steps this iteration."""
+    if len(inputs) <= 1:
+        return 0.0
+
+    total_cost = 0.0
+    for state, control in zip(states[:-2], inputs[:-1]):
+        total_cost += float(
+            solver.l2(
+                state[game.nx1:],
+                control[game.nu1:],
+                state[:game.nx1],
+                control[:game.nu1],
+            )
+        )
+    return total_cost
+
+
 def _player2_completed_cost(iteration_data, game, solver):
     """Return P2's total cost for a completed iteration."""
     stored_cost = getattr(iteration_data, "p2_total_cost", np.nan)
@@ -100,7 +78,14 @@ def _player2_completed_cost(iteration_data, game, solver):
 
     return float(
         sum(
-            float(solver.l2(state[game.nx1:], control[game.nu1:]))
+            float(
+                solver.l2(
+                    state[game.nx1:],
+                    control[game.nu1:],
+                    state[:game.nx1],
+                    control[:game.nu1],
+                )
+            )
             for state, control in zip(states, inputs)
         )
     )
@@ -129,22 +114,20 @@ def save_simulation_figure(path="LDG_Simulation.png"):
 
 def plot_simulation_init(game):
     plt.ion()
-    plot_rows = 6 if game.is_single_integrator else 7
-    fig = plt.figure(figsize=(13, 15 if game.is_single_integrator else 17))
+    plot_rows = 4 if game.is_single_integrator else 5
+    fig = plt.figure(figsize=(13, 12 if game.is_single_integrator else 14))
     gs = fig.add_gridspec(plot_rows, 2, width_ratios=(2.0, 1.0))
     ax_xy = fig.add_subplot(gs[:-1, 0])
-    ax_xpos = fig.add_subplot(gs[0, 1])
-    ax_ypos = fig.add_subplot(gs[1, 1])
-    ax_u = fig.add_subplot(gs[2, 1])
+    ax_u = fig.add_subplot(gs[0, 1])
     ax_cost = fig.add_subplot(gs[-1, :])
     if game.is_single_integrator:
         ax_velocity = None
-        ax_distance = fig.add_subplot(gs[3, 1])
-        ax_bargaining = fig.add_subplot(gs[4, 1])
+        ax_distance = fig.add_subplot(gs[1, 1])
+        ax_bargaining = fig.add_subplot(gs[2, 1])
     else:
-        ax_velocity = fig.add_subplot(gs[3, 1])
-        ax_distance = fig.add_subplot(gs[4, 1])
-        ax_bargaining = fig.add_subplot(gs[5, 1])
+        ax_velocity = fig.add_subplot(gs[1, 1])
+        ax_distance = fig.add_subplot(gs[2, 1])
+        ax_bargaining = fig.add_subplot(gs[3, 1])
     ax_nash_product = ax_bargaining.twinx()
 
     lines = {}
@@ -210,48 +193,6 @@ def plot_simulation_init(game):
     ax_xy.grid(True, alpha=0.3)
     ax_xy.legend(loc="best")
 
-    lines["x_joint_state"], = ax_xpos.plot([], [], color="C2", linestyle="-", marker='s', label="current trajectory")
-    lines["x_joint_current"], = ax_xpos.plot([], [], "C2o", label="current")
-    lines["x_joint_target"], = ax_xpos.plot([], [], "ks", markersize=7, label="target")
-    lines["x_joint_samples"], = ax_xpos.plot([], [], "k.", alpha=0.35, label="sampled set")
-    lines["x_joint_hull"], = ax_xpos.plot([], [], "k-", linewidth=1.5, label="sampled convex hull")
-    lines["x_joint_active_samples"], = ax_xpos.plot(
-        [], [], "o", color="C4", markerfacecolor="none", markersize=8,
-        markeredgewidth=2, linestyle="none", label="solution data",
-    )
-    lines["x_joint_terminal_candidates"], = ax_xpos.plot(
-        [], [], "C6x", markersize=7, linestyle="none", label="examined terminals"
-    )
-    ax_xpos.set_xlim(game.x_min-eps, game.x_max+eps)
-    ax_xpos.set_ylim(game.x_min-eps, game.x_max+eps)
-    ax_xpos.set_aspect("equal", adjustable="box")
-    ax_xpos.set_xlabel("P1 x position")
-    ax_xpos.set_ylabel("P2 x position")
-    ax_xpos.set_title("Joint x position")
-    ax_xpos.grid(True, alpha=0.3)
-    # ax_xpos.legend(loc="best")
-
-    lines["y_joint_state"], = ax_ypos.plot([], [], color="C3", linestyle="-", marker='s', label="current trajectory")
-    lines["y_joint_current"], = ax_ypos.plot([], [], "C3o", label="current")
-    lines["y_joint_target"], = ax_ypos.plot([], [], "ks", markersize=7, label="target")
-    lines["y_joint_samples"], = ax_ypos.plot([], [], "k.", alpha=0.35, label="sampled set")
-    lines["y_joint_hull"], = ax_ypos.plot([], [], "k-", linewidth=1.5, label="sampled convex hull")
-    lines["y_joint_active_samples"], = ax_ypos.plot(
-        [], [], "o", color="C4", markerfacecolor="none", markersize=8,
-        markeredgewidth=2, linestyle="none", label="solution data",
-    )
-    lines["y_joint_terminal_candidates"], = ax_ypos.plot(
-        [], [], "C6x", markersize=7, linestyle="none", label="examined terminals"
-    )
-    ax_ypos.set_xlim(game.y_min-eps, game.y_max+eps)
-    ax_ypos.set_ylim(game.y_min-eps, game.y_max+eps)
-    ax_ypos.set_aspect("equal", adjustable="box")
-    ax_ypos.set_xlabel("P1 y position")
-    ax_ypos.set_ylabel("P2 y position")
-    ax_ypos.set_title("Joint y position")
-    ax_ypos.grid(True, alpha=0.3)
-    # ax_ypos.legend(loc="best")
-
     input_label = "v" if game.is_single_integrator else "a"
     lines["p1_ax"], = ax_u.plot([], [], color="C0", linestyle="-", drawstyle="steps-post", label=f"P1 {input_label}x")
     lines["p1_ay"], = ax_u.plot([], [], color="C0", linestyle="--", drawstyle="steps-post", label=f"P1 {input_label}y")
@@ -290,15 +231,15 @@ def plot_simulation_init(game):
     ax_cost.set_ylabel("total cost-to-go")
     ax_cost.set_title("Player total cost-to-go by iteration")
     ax_cost.grid(True, axis="y", alpha=0.3)
-    # ax_cost.legend(
-    #     handles=(
-    #         Patch(facecolor="C0", label="P1 completed"),
-    #         Patch(facecolor="C1", label="P2 completed"),
-    #         Patch(facecolor="C4", label="P1 current predicted"),
-    #     ),
-    #     loc="best",
-    # )
-
+    ax_cost.legend(
+        handles=(
+            Patch(facecolor="C0", label="P1 completed"),
+            Patch(facecolor="C1", label="P2 completed"),
+            Patch(facecolor="C4", label="P1 current predicted"),
+            Patch(facecolor="C5", label="P2 current predicted"),
+        ),
+        loc="best", ncol=2,
+    )
     lines["player_distance"], = ax_distance.plot(
         [], [], "k-", linewidth=2, label="Executed distance"
     )
@@ -343,8 +284,6 @@ def plot_simulation_init(game):
     state = {
         "fig": fig,
         "ax_xy": ax_xy,
-        "ax_xpos": ax_xpos,
-        "ax_ypos": ax_ypos,
         "ax_u": ax_u,
         "ax_velocity": ax_velocity,
         "ax_cost": ax_cost,
@@ -360,6 +299,7 @@ def plot_simulation_init(game):
         "cost_labels": [],
         "plotted_iteration_costs": None,
         "predicted_cost1": None,
+        "predicted_cost2": None,
         "bargaining_times": [],
         "bargaining_gammas": [],
         "nash_products": [],
@@ -377,8 +317,6 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ax_u = state["ax_u"]
     ax_xy = state["ax_xy"]
     lines = state["lines"]
-    ax_xpos = state["ax_xpos"]
-    ax_ypos = state["ax_ypos"]
     ax_velocity = state["ax_velocity"]
     ax_cost = state["ax_cost"]
     ax_distance = state["ax_distance"]
@@ -433,21 +371,10 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         separation_circle.center = position
         separation_circle.set_radius(game.d_sep / 2)
         separation_circle.set_visible(True)
-    lines["x_joint_state"].set_data(x[:, 0], x[:, p2_i])
-    lines["x_joint_current"].set_data([x[-1, 0]], [x[-1, p2_i]])
-    lines["y_joint_state"].set_data(x[:, 1], x[:, p2_i + 1])
-    lines["y_joint_current"].set_data([x[-1, 1]], [x[-1, p2_i + 1]])
-
     target1_position = np.asarray(game.x1f, dtype=float).reshape(-1)[:2]
     target2_position = np.asarray(game.x2f, dtype=float).reshape(-1)[:2]
-    joint_x_target = np.array([[target1_position[0], target2_position[0]]])
-    joint_y_target = np.array([[target1_position[1], target2_position[1]]])
-    lines["x_joint_target"].set_data(joint_x_target[:, 0], joint_x_target[:, 1])
-    lines["y_joint_target"].set_data(joint_y_target[:, 0], joint_y_target[:, 1])
 
     learned_data = LearnedData
-    analyzed_data = learned_data.AnalyzedData
-    sampled_states = analyzed_data.state
     solution = getattr(solver1, "Solution", None)
     solver2_solution = getattr(solver2, "Solution", None)
 
@@ -525,8 +452,6 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         candidate_terminal_states.ndim == 2
         and candidate_terminal_states.shape[1] == game.nx
     ):
-        candidate_x_positions = candidate_terminal_states[:, [0, p2_i]]
-        candidate_y_positions = candidate_terminal_states[:, [1, p2_i + 1]]
         lines["p1_terminal_candidates"].set_data(
             candidate_terminal_states[:, 0], candidate_terminal_states[:, 1]
         )
@@ -534,20 +459,10 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             candidate_terminal_states[:, p2_i],
             candidate_terminal_states[:, p2_i + 1],
         )
-        lines["x_joint_terminal_candidates"].set_data(
-            candidate_x_positions[:, 0], candidate_x_positions[:, 1]
-        )
-        lines["y_joint_terminal_candidates"].set_data(
-            candidate_y_positions[:, 0], candidate_y_positions[:, 1]
-        )
     else:
         candidate_terminal_states = np.empty((0, game.nx))
-        candidate_x_positions = np.empty((0, 2))
-        candidate_y_positions = np.empty((0, 2))
         lines["p1_terminal_candidates"].set_data([], [])
         lines["p2_terminal_candidates"].set_data([], [])
-        lines["x_joint_terminal_candidates"].set_data([], [])
-        lines["y_joint_terminal_candidates"].set_data([], [])
 
     selected_terminal = np.asarray(
         getattr(solution, "terminal_sample_state", []), dtype=float
@@ -574,20 +489,40 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         if np.isfinite(getattr(iteration_data, "p1_total_cost", np.nan))
     )
     plotted_costs = completed_iteration_costs
-    predicted_cost_to_go = getattr(solution, "player1_cost", np.nan)
+    predicted_cost1_to_go = getattr(solution, "player1_cost", np.nan)
+    predicted_cost2_to_go = getattr(solution, "player2_cost", np.nan)
+    current_iteration_is_incomplete = game.iteration not in {
+        item[0] for item in completed_iteration_costs
+    }
     if (
         bool(getattr(solution, "success", False))
-        and np.isfinite(predicted_cost_to_go)
-        and game.iteration not in {item[0] for item in completed_iteration_costs}
+        and np.isfinite(predicted_cost1_to_go)
+        and current_iteration_is_incomplete
     ):
-        predicted_iteration_cost = _player1_executed_cost(x, u, game, solver1)
-        predicted_iteration_cost += float(predicted_cost_to_go)
-        predicted_cost = (game.iteration, predicted_iteration_cost)
-        state["predicted_cost1"] = predicted_cost
+        predicted_cost1 = (
+            game.iteration,
+            _player1_executed_cost(x, u, game, solver1)
+            + float(predicted_cost1_to_go),
+        )
+        state["predicted_cost1"] = predicted_cost1
     else:
-        predicted_cost = state["predicted_cost1"]
+        predicted_cost1 = state["predicted_cost1"]
 
-    cost_plot_data = (plotted_costs, predicted_cost)
+    if (
+        bool(getattr(solution, "success", False))
+        and np.isfinite(predicted_cost2_to_go)
+        and current_iteration_is_incomplete
+    ):
+        predicted_cost2 = (
+            game.iteration,
+            _player2_executed_cost(x, u, game, solver1)
+            + float(predicted_cost2_to_go),
+        )
+        state["predicted_cost2"] = predicted_cost2
+    else:
+        predicted_cost2 = state["predicted_cost2"]
+
+    cost_plot_data = (plotted_costs, predicted_cost1, predicted_cost2)
     if cost_plot_data != state["plotted_iteration_costs"]:
         for label in state["cost_labels"]:
             label.remove()
@@ -615,14 +550,22 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             )
             state["cost_bars"].extend((p1_bars, p2_bars))
 
-        if predicted_cost is not None:
-            predicted_bars = ax_cost.bar(
-                [predicted_cost[0]],
-                [predicted_cost[1]],
+        if predicted_cost1 is not None:
+            predicted_p1_bars = ax_cost.bar(
+                [predicted_cost1[0] - bar_width / 2],
+                [predicted_cost1[1]],
                 color="C4",
-                width=0.7,
+                width=bar_width,
             )
-            state["cost_bars"].append(predicted_bars)
+            state["cost_bars"].append(predicted_p1_bars)
+        if predicted_cost2 is not None:
+            predicted_p2_bars = ax_cost.bar(
+                [predicted_cost2[0] + bar_width / 2],
+                [predicted_cost2[1]],
+                color="C5",
+                width=bar_width,
+            )
+            state["cost_bars"].append(predicted_p2_bars)
 
         for bars in state["cost_bars"]:
             cost_labels = [
@@ -635,8 +578,10 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
 
         state["plotted_iteration_costs"] = cost_plot_data
         plotted_iterations = completed_iterations.copy()
-        if predicted_cost is not None:
-            plotted_iterations.append(predicted_cost[0])
+        if predicted_cost1 is not None:
+            plotted_iterations.append(predicted_cost1[0])
+        if predicted_cost2 is not None:
+            plotted_iterations.append(predicted_cost2[0])
         plotted_iterations = sorted(set(plotted_iterations))
         if plotted_iterations:
             ax_cost.set_xticks(plotted_iterations)
@@ -665,62 +610,6 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ax_distance.relim()
     ax_distance.autoscale_view()
     ax_distance.set_ylim(bottom=game.d_sep - 0.1, top=game.d_sep + 0.25)
-
-    if len(sampled_states) > 0:
-        sampled_states = np.asarray(sampled_states, dtype=float)
-        sampled_x_positions = sampled_states[:, [0, p2_i]]
-        sampled_y_positions = sampled_states[:, [1, p2_i + 1]]
-        _set_joint_sample_plot(
-            lines["x_joint_samples"],
-            lines["x_joint_hull"],
-            sampled_x_positions,
-        )
-        _set_joint_sample_plot(
-            lines["y_joint_samples"],
-            lines["y_joint_hull"],
-            sampled_y_positions,
-        )
-
-        a_set = np.asarray(getattr(solution, "a_set", []), dtype=float).reshape(-1)
-        if a_set.size == sampled_states.shape[0]:
-            active_samples = a_set > 1e-3
-            lines["x_joint_active_samples"].set_data(
-                sampled_x_positions[active_samples, 0],
-                sampled_x_positions[active_samples, 1],
-            )
-            lines["y_joint_active_samples"].set_data(
-                sampled_y_positions[active_samples, 0],
-                sampled_y_positions[active_samples, 1],
-            )
-        else:
-            lines["x_joint_active_samples"].set_data([], [])
-            lines["y_joint_active_samples"].set_data([], [])
-    else:
-        sampled_x_positions = np.empty((0, 2))
-        sampled_y_positions = np.empty((0, 2))
-        _set_joint_sample_plot(lines["x_joint_samples"], lines["x_joint_hull"], np.empty((0, 2)))
-        _set_joint_sample_plot(lines["y_joint_samples"], lines["y_joint_hull"], np.empty((0, 2)))
-        lines["x_joint_active_samples"].set_data([], [])
-        lines["y_joint_active_samples"].set_data([], [])
-
-    joint_x_positions = np.vstack(
-        (
-            x[:, [0, p2_i]],
-            sampled_x_positions,
-            candidate_x_positions,
-            joint_x_target,
-        )
-    )
-    joint_y_positions = np.vstack(
-        (
-            x[:, [1, p2_i + 1]],
-            sampled_y_positions,
-            candidate_y_positions,
-            joint_y_target,
-        )
-    )
-    _set_tight_joint_limits(ax_xpos, joint_x_positions)
-    _set_tight_joint_limits(ax_ypos, joint_y_positions)
 
     if solution is not None and hasattr(solution, "x1"):
         lines["p1_prediction"].set_data(solution.x1[:, 0], solution.x1[:, 1])
