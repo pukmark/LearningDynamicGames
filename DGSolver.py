@@ -677,7 +677,7 @@ class DGSolver:
                 cost_filter
                 & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
                 & (distance_to_terminal <= np.sqrt(2) * self.game.vx_max * self.N * self.dt)
-                & (sample_times > t + self.N * self.dt - 1e-5)
+                # & (sample_times > t + self.N * self.dt - 1e-5)
                 
             )[0]
         else:
