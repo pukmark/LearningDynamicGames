@@ -276,7 +276,7 @@ class GameDynamics:
         self.reset_history()
         self.iteration += 1
 
-    def SimpleController(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
+    def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 1.
 
         The single-integrator controller commands velocity proportional to the
@@ -284,8 +284,18 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
-        if self.t < 1.0 and abs(self.x[3])<self.vy_max-0.5 and abs(self.x[2])<self.vx_max-0.5:
-            target = np.asarray([self.x1f[0,0]-2.0,self.x1f[0,1],0,0], dtype=float).reshape(-1)
+        if (
+            self.t < 1.0
+            and (
+                self.is_single_integrator
+                or (
+                    abs(self.x[3]) < self.vy_max - 0.5
+                    and abs(self.x[2]) < self.vx_max - 0.5
+                )
+            )
+        ):
+            target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
+            target[0] -= 2.0
             # velocity_gain = 1.0
             # position_gain=10.0
         else:
@@ -322,4 +332,59 @@ class GameDynamics:
 
         u_min = self._as_bounds(self.u_min, self.nu, "u_min")[:self.nu1]
         u_max = self._as_bounds(self.u_max, self.nu, "u_max")[:self.nu1]
+        return np.clip(control, u_min, u_max)
+
+    def SimpleController2(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
+        """Return a bounded, goal-tracking control for player 2.
+
+        This is the player-2-symmetric counterpart of ``SimpleController1``.
+        It uses player 2's state and target, mirrors the initial x waypoint,
+        and returns only player 2's two control components.
+        """
+        p2 = self.nx1
+        if (
+            self.t < 1.0
+            and (
+                self.is_single_integrator
+                or (
+                    abs(self.x[p2 + 3]) < self.vy_max - 0.5
+                    and abs(self.x[p2 + 2]) < self.vx_max - 0.5
+                )
+            )
+        ):
+            target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
+            target[0] += 2.0
+        else:
+            target = np.asarray(self.x2f, dtype=float).reshape(-1)
+        if target.shape != (self.nx2,):
+            raise ValueError(
+                f"x2f must contain one player state with shape ({self.nx2},)"
+            )
+
+        distance = np.linalg.norm(self.x[:2] - self.x[p2:p2 + 2])
+        if distance < 2 * self.d_sep:
+            velocity_gain = 2 * velocity_gain
+        if np.linalg.norm(self.x1f[0, :2] - self.x[:2]) < self.d_sep:
+            position_gain = 4 * position_gain
+
+        position_error = target[:2] - self.x[p2:p2 + 2]
+        if self.is_single_integrator:
+            control = position_gain * position_error
+        else:
+            velocity = self.x[p2 + 2:p2 + 4]
+            velocity_error = target[2:4] - velocity
+            control = position_gain * position_error + velocity_gain * velocity_error
+
+            if np.linalg.norm(velocity) > self.vx_max - 1.0 and self.t >= 0.8:
+                control = control - velocity / np.linalg.norm(velocity)
+                if np.dot(control, velocity) > 0:
+                    control = (
+                        control
+                        - np.dot(control, velocity)
+                        * velocity
+                        / np.linalg.norm(velocity) ** 2
+                    )
+
+        u_min = self._as_bounds(self.u_min, self.nu, "u_min")[self.nu1:]
+        u_max = self._as_bounds(self.u_max, self.nu, "u_max")[self.nu1:]
         return np.clip(control, u_min, u_max)

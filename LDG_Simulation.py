@@ -75,7 +75,7 @@ if __name__ == '__main__':
         if args.disagreement_costs is not None else disagreement_costs
     )
     
-    x0 = np.array( player_state(-1.75, 1.5, dynamics_type=dynamics_type) + player_state(1.75, -1.5, dynamics_type=dynamics_type))
+    x0 = np.array( player_state(-1.75, 1.5, dynamics_type=dynamics_type) + player_state(2.5, -1.0, dynamics_type=dynamics_type))
     alpha1, alpha2 = 0.5, 0.5
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
@@ -112,8 +112,10 @@ if __name__ == '__main__':
                     (prev_p1_total_cost, prev_p2_total_cost),
                     (current_cost1, current_cost2),
                 )
-            if iter == 0 and not cooperative:
-                u1 = Game.SimpleController()
+            if iter == 0:
+                u1 = np.concatenate(
+                    (Game.SimpleController1(), Game.SimpleController2())
+                )
                 Solver2.Solution.success = False
             else:
                 if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
@@ -137,10 +139,6 @@ if __name__ == '__main__':
                             current_cost2=current_cost2,
                             disagreement_costs=active_disagreement_costs,
                         )
-                        if iter == 0:
-                            u1_simple = Game.SimpleController()
-                            u1 = np.concatenate((u1_simple[0:2], u1[2:]))
-
                         indx = getattr(Solver1.Solution, "indx", 0)
                         if indx > 0:
                             Found = False
@@ -171,7 +169,9 @@ if __name__ == '__main__':
                         
                                 
             # # Player 2 Controller
-            if cooperative:
+            if iter == 0:
+                u2 = u1
+            elif cooperative:
                 u2 = u1
                 Solver2.Solution = copy.deepcopy(Solver1.Solution)
             else:

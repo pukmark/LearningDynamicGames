@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from DGSolver import select_nash_bargaining_result
+from Game import GameDynamics
 from LDG_Simulation_aux import (
     init_learned_data,
     rebuild_analyzed_data,
@@ -71,6 +72,40 @@ class LearnedCostToGoTests(unittest.TestCase):
 
         np.testing.assert_allclose(learned_data.AnalyzedData.Cost2Go, [2.0, 1.0])
         np.testing.assert_allclose(learned_data.AnalyzedData.Cost2Go2, [4.0, 2.0])
+
+
+class SimpleControllerTests(unittest.TestCase):
+    def test_player2_controller_is_symmetric_and_bounded(self):
+        game = GameDynamics(
+            0.1,
+            np.array([-1.75, 1.5, 0.0, 0.0, 1.75, -1.5, 0.0, 0.0]),
+            np.array([[1.5, -1.5, 0.0, 0.0]]),
+            np.array([[-1.5, 1.5, 0.0, 0.0]]),
+            dynamics_type=2,
+        )
+        game.reset_game()
+
+        control1 = game.SimpleController1()
+        control2 = game.SimpleController2()
+
+        self.assertEqual(control1.shape, (game.nu1,))
+        self.assertEqual(control2.shape, (game.nu2,))
+        np.testing.assert_allclose(control2, -control1)
+        self.assertTrue(np.all(control2 >= game.u_min))
+        self.assertTrue(np.all(control2 <= game.u_max))
+
+    def test_both_controllers_support_single_integrator_dynamics(self):
+        game = GameDynamics(
+            0.1,
+            np.array([-1.75, 1.5, 1.75, -1.5]),
+            np.array([[1.5, -1.5]]),
+            np.array([[-1.5, 1.5]]),
+            dynamics_type=1,
+        )
+        game.reset_game()
+
+        self.assertEqual(game.SimpleController1().shape, (2,))
+        self.assertEqual(game.SimpleController2().shape, (2,))
 
 
 if __name__ == "__main__":
