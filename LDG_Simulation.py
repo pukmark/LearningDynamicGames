@@ -90,7 +90,7 @@ if __name__ == '__main__':
         Game.reset_game()
         Solver1 = DGSolver(
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
-            alpha=alpha1, max_workers=max_workers,
+            alpha=alpha1 if iter > 0 else 0.99, max_workers=max_workers,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             cooperative=cooperative,
             bargaining_gammas=gamma_grid,
