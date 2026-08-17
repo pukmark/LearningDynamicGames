@@ -285,9 +285,9 @@ class GameDynamics:
         respects player 1's input bounds.
         """
         if self.t < 1.0 and abs(self.x[3])<self.vy_max-0.5 and abs(self.x[2])<self.vx_max-0.5:
-            target = np.asarray([self.x[0]+0.25,self.x[1]-1.0,0,0], dtype=float).reshape(-1)
-            velocity_gain = 1.0
-            position_gain=10.0
+            target = np.asarray([self.x1f[0,0]-2.0,self.x1f[0,1],0,0], dtype=float).reshape(-1)
+            # velocity_gain = 1.0
+            # position_gain=10.0
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)
         if target.shape != (self.nx1,):
