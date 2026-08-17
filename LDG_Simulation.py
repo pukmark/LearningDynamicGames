@@ -1,5 +1,6 @@
 import os
 os.system('clear')
+import argparse
 import numpy as np
 import casadi as ca
 import copy
@@ -28,7 +29,15 @@ dt = 0.1
 tf = 10.0
 dynamics_type = 2  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
-Niterations = 25
+# In cooperative mode Solver1 selects both the learned safe-set reconnection
+# state and the shared-constraint equilibrium weight by Nash bargaining. Its
+# joint control output is applied to both players.
+cooperative_mode = True
+bargaining_gammas = np.linspace(0.25, 0.75, 3)
+# Optional (b1_t, b2_t) costs-to-go. None uses the componentwise worst cost
+# among the feasible candidates at that step as a conservative disagreement.
+disagreement_costs = None
+Niterations = 10
 arrival_tolerance = 0.01
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
@@ -38,9 +47,32 @@ max_workers = max(1, int(os.cpu_count() * 0.4))
         
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Run the learning dynamic-game simulation.")
+    parser.add_argument(
+        "--cooperative", action="store_true",
+        help="apply Solver1 to both players and select (safe state, gamma) by Nash bargaining",
+    )
+    parser.add_argument(
+        "--bargaining-gammas", nargs="+", type=float, default=None,
+        help="candidate equilibrium weights in [0, 1] (default: 0.1 ... 0.9)",
+    )
+    parser.add_argument(
+        "--disagreement-costs", nargs=2, type=float, metavar=("B1", "B2"),
+        help="optional player costs-to-go defining the disagreement point",
+    )
+    args = parser.parse_args()
+    cooperative = cooperative_mode or args.cooperative
+    gamma_grid = (
+        np.asarray(args.bargaining_gammas, dtype=float)
+        if args.bargaining_gammas is not None else bargaining_gammas
+    )
+    baseline_costs = (
+        tuple(args.disagreement_costs)
+        if args.disagreement_costs is not None else disagreement_costs
+    )
     
     x0 = np.array( player_state(-1.75, 1.5, dynamics_type=dynamics_type) + player_state(1.75, -1.5, dynamics_type=dynamics_type))
-    alpha1, alpha2 = 1.0, 0.46
+    alpha1, alpha2 = 0.5, 0.46
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
     LearnedData = init_learned_data()
@@ -56,36 +88,65 @@ if __name__ == '__main__':
 
     for iter in range(Game.Max_Iterations):
         Game.reset_game()
-        Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf)
+        Solver1 = DGSolver(
+            Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
+            alpha=alpha1, max_workers=max_workers,
+            prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
+            cooperative=cooperative,
+            bargaining_gammas=gamma_grid,
+            disagreement_costs=baseline_costs,
+        )
         # Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf)
         EndGame = False
         current_cost1 = 0.0
+        current_cost2 = 0.0
         shared_constraint_active = False
         while not EndGame:
-            if iter == 0:
+            if iter == 0 and not cooperative:
                 u1 = Game.SimpleController()
                 Solver2.Solution.success = False
             else:
                 if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
                     u1 = np.zeros(Game.nu)
                 # Player 1 Controller
-                elif Solver1.Solution.terminal_sample_state is not None and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8:
+                elif getattr(Solver1.Solution, "terminal_sample_state", None) is not None and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8:
                     Solver1.Solution.indx += 1
                     u1 = np.concatenate( (Solver1.Solution.u1[Solver1.Solution.indx],Solver1.Solution.u2[Solver1.Solution.indx]))
                 else:
                     indx = getattr(Solver1.Solution, "indx", 0)
                     if not Solver1.Solution.success and indx >= int(Solver1.N):
-                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1, use_all_terminal_points=True)
+                        u1 = Solver1.step(
+                            Game.t, Game.x, current_cost1=current_cost1,
+                            current_cost2=current_cost2,
+                            use_all_terminal_points=True,
+                        )
                     else:
-                        u1 = Solver1.step(Game.t, Game.x, current_cost1=current_cost1)
+                        u1 = Solver1.step(
+                            Game.t, Game.x, current_cost1=current_cost1,
+                            current_cost2=current_cost2,
+                        )
 
                         indx = getattr(Solver1.Solution, "indx", 0)
                         if indx > 0:
                             Found = False
                             u1_N = np.zeros(Game.nu)
                             for dN in [1, 2, 3]:
-                                Solver1_N = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=prev_p1_total_cost, horizon=Solver1.N+dN)
-                                u1_N = Solver1_N.step(Game.t, Game.x, current_cost1=current_cost1)
+                                Solver1_N = DGSolver(
+                                    Game, x1f=x1f, x2f=x2f,
+                                    LearnedData=LearnedData, alpha=alpha1,
+                                    max_workers=max_workers,
+                                    prev_best_cost=(
+                                        prev_p1_total_cost if iter > 0 else np.inf
+                                    ),
+                                    horizon=Solver1.N+dN,
+                                    cooperative=cooperative,
+                                    bargaining_gammas=gamma_grid,
+                                    disagreement_costs=baseline_costs,
+                                )
+                                u1_N = Solver1_N.step(
+                                    Game.t, Game.x, current_cost1=current_cost1,
+                                    current_cost2=current_cost2,
+                                )
                                 if Solver1_N.Solution.success:
                                     Found = True
                                     Solver1.Solution = copy.deepcopy(Solver1_N.Solution)
@@ -94,28 +155,39 @@ if __name__ == '__main__':
                         
                                 
             # # Player 2 Controller
-            Solver2.Solution.success = False
-            if float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f)) <= 1e-8:
-                u2 = np.zeros(Game.nu)
-            elif Solver1.Solution.success and iter > 0 and np.size(Solver1.Solution.u1) == Solver1.N and np.size(Solver1.Solution.u2) == Solver1.N:
-                u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
-            if not Solver2.Solution.success:
-                u2 = Solver2.step(Game.t, Game.x)
-            if not Solver2.Solution.success and iter > 0:
-                u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
-                u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
-                u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=True)
+            if cooperative:
+                u2 = u1
+                Solver2.Solution = copy.deepcopy(Solver1.Solution)
+            else:
+                Solver2.Solution.success = False
+                if float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f)) <= 1e-8:
+                    u2 = np.zeros(Game.nu)
+                elif Solver1.Solution.success and iter > 0 and np.size(Solver1.Solution.u1) == Solver1.N and np.size(Solver1.Solution.u2) == Solver1.N:
+                    u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
+                if not Solver2.Solution.success:
+                    u2 = Solver2.step(Game.t, Game.x)
+                if not Solver2.Solution.success and iter > 0:
+                    u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
+                    u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
+                    u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=True)
 
             # calculate current cost for player 1:
             current_cost1 += float(Solver1.l1(Game.x[:Game.nx1], u1[:Game.nu1], Game.x[Game.nx1:], u2[Game.nu1:]))
+            current_cost2 += float(Solver1.l2(Game.x[Game.nx1:], u2[Game.nu1:], Game.x[:Game.nx1], u1[:Game.nu1]))
             
-            u = np.concatenate((u1[0:2], u2[2:]))
+            if not cooperative:
+                u = np.concatenate((u1[0:2], u2[2:]))
+            else:
+                u = np.concatenate((u1[0:2], u1[2:]))
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             GameFlag = Game.step(u=u)
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             plot_simulation(Game, Solver1, Solver2, LearnedData)
             
-            record_learned_state(LearnedData, Game, iter, alpha1)
+            selected_gamma = getattr(Solver1.Solution, "bargaining_gamma", alpha1)
+            if selected_gamma is None:
+                selected_gamma = alpha1
+            record_learned_state(LearnedData, Game, iter, selected_gamma)
             if GameFlag != Game.STEP_OK:
                 print("Infeasible Step - Stopping Iteration")
 
@@ -164,7 +236,7 @@ if __name__ == '__main__':
             iterations_to_use = max(5, int(max_workers/5)))
 
         LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
-        if iter > 0 and should_reduce_alpha(
+        if not cooperative and iter > 0 and should_reduce_alpha(
             LearnedData.RawData[iter - 1].p1_total_cost,
             LearnedData.RawData[iter].p1_total_cost,
             shared_constraint_active,

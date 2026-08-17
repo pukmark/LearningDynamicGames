@@ -34,6 +34,32 @@ def is_symbolic_expr(z):
     """True if z is a CasADi SX/MX expression that depends on symbols."""
     return isinstance(z, (ca.SX, ca.MX)) and len(ca.symvar(z)) > 0
 
+
+def select_nash_bargaining_result(candidate_results, disagreement_costs):
+    """Return the individually rational candidate with largest Nash product.
+
+    Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
+    ``None`` is returned when the individually rational set is empty.
+    """
+    baseline = np.asarray(disagreement_costs, dtype=float).reshape(-1)
+    if baseline.shape != (2,) or not np.all(np.isfinite(baseline)):
+        raise ValueError("disagreement_costs must be two finite costs (b1_t, b2_t)")
+    acceptable = [
+        result for result in candidate_results
+        if result[2] <= baseline[0] + 1e-10
+        and result[3] <= baseline[1] + 1e-10
+    ]
+    if not acceptable:
+        return None
+    return max(
+        acceptable,
+        key=lambda result: (
+            (baseline[0] - result[2]) * (baseline[1] - result[3]),
+            (baseline[0] - result[2]) + (baseline[1] - result[3]),
+            -result[2] - result[3],
+        ),
+    )
+
 def _resolve_julia_runtime():
     env_runtime = os.environ.get('JULIA_RUNTIME')
     if env_runtime and os.path.isfile(env_runtime):
@@ -154,11 +180,12 @@ def _solve_sampled_terminal_candidate(
             sample_count=sample_count,
         )
         if not solver.last_solve_success:
-            return sample_index, None, None, None
-        cost = solver._player1_cost(solver.Solution, candidate_data)
-        return sample_index, cost, solver.Solution, None
+            return sample_index, forced_alpha, None, None, None, None
+        cost1 = solver._player1_cost(solver.Solution, candidate_data)
+        cost2 = solver._player2_cost(solver.Solution, candidate_data)
+        return sample_index, forced_alpha, cost1, cost2, solver.Solution, None
     except Exception as exc:
-        return sample_index, None, None, f"{type(exc).__name__}: {exc}"
+        return sample_index, forced_alpha, None, None, None, f"{type(exc).__name__}: {exc}"
 
 class DGSolver:
     """Basic structure for a dynamic game solver."""
@@ -174,7 +201,10 @@ class DGSolver:
                        max_workers = 1,
                        verbose = False, 
                        options=None,
-                       constraint_mode="sampled_points"):
+                       constraint_mode="sampled_points",
+                       cooperative=False,
+                       bargaining_gammas=None,
+                       disagreement_costs=None):
         if horizon <= 0:
             raise ValueError("horizon must be positive")
 
@@ -193,6 +223,15 @@ class DGSolver:
                 "terminal_constraint_mode must be 'convex_hull' or 'sampled_points'"
             )
         self.constraint_mode = constraint_mode
+        self.cooperative = bool(cooperative)
+        if bargaining_gammas is None:
+            bargaining_gammas = np.linspace(0.1, 0.9, 9)
+        self.bargaining_gammas = np.asarray(bargaining_gammas, dtype=float).reshape(-1)
+        if self.bargaining_gammas.size == 0 or np.any(
+            (self.bargaining_gammas < 0.0) | (self.bargaining_gammas > 1.0)
+        ):
+            raise ValueError("bargaining_gammas must contain values in [0, 1]")
+        self.disagreement_costs = disagreement_costs
         self.alpha_vec = alpha * np.ones((self.N+1,1))
         self.max_workers = max_workers
         self.options = options.copy() if options is not None else {}
@@ -374,7 +413,16 @@ class DGSolver:
         L2 = 0
         for k in range(self.N):
             L2 += self.l2(x2[k, :], u2[k, :], x1[k, :], u1[k, :])
-        L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
+        if Terminal_Safe_Set is not None and hasattr(Terminal_Safe_Set, "Cost2Go2"):
+            terminal_cost2 = np.asarray(
+                Terminal_Safe_Set.Cost2Go2, dtype=float
+            ).reshape(-1)
+            if terminal_cost2.size > 1:
+                L2 += ca.mtimes(terminal_cost2.reshape(1, -1), ai_xf)
+            elif terminal_cost2.size == 1:
+                L2 += float(terminal_cost2[0])
+        else:
+            L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
         # L2 += 1e8*ca.sumsqr(x2f_slack)
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
@@ -559,20 +607,30 @@ class DGSolver:
         )
         return A, B
 
-    def step(self, t, x0, current_cost1=0.0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False):
+    def step(self, t, x0, current_cost1=0.0, current_cost2=0.0,
+             forced_alpha=None, u1_0=None, u2_0=None,
+             last_attempted_solution=False, use_all_terminal_points=False,
+             disagreement_costs=None):
         """Solve one step using the configured learned terminal-state mode."""
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
-                t, x0, current_cost1=current_cost1, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution, use_all_terminal_points=use_all_terminal_points
+                t, x0, current_cost1=current_cost1, current_cost2=current_cost2,
+                forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0,
+                last_attempted_solution=last_attempted_solution,
+                use_all_terminal_points=use_all_terminal_points,
+                disagreement_costs=disagreement_costs,
             )
         return self._step_once(
             t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
         )
 
     def _step_over_sampled_terminal_states(
-        self, t, x0, current_cost1=0.0, forced_alpha=None, u1_0=None, u2_0=None, last_attempted_solution=False, use_all_terminal_points=False
+        self, t, x0, current_cost1=0.0, current_cost2=0.0,
+        forced_alpha=None, u1_0=None, u2_0=None,
+        last_attempted_solution=False, use_all_terminal_points=False,
+        disagreement_costs=None,
     ):
-        """Enumerate learned terminal points and keep the lowest-cost P1 solution."""
+        """Enumerate safe-set states and, in cooperative mode, bargaining weights."""
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
         Cost2Go = np.asarray(analyzed.Cost2Go)
@@ -584,8 +642,12 @@ class DGSolver:
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         distance_to_terminal = np.linalg.norm(states[:,:2] - x0[:2], axis=1)
         if not use_all_terminal_points:
+            cost_filter = (
+                np.ones(Cost2Go.shape, dtype=bool)
+                if self.cooperative else Cost2Go <= prev_cost2go + 1e-5
+            )
             candidate_indices = np.where(
-                (Cost2Go <= prev_cost2go+1e-5)
+                cost_filter
                 & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
                 & (distance_to_terminal <= np.sqrt(2) * self.game.vx_max * self.N * self.dt)
                 # & (sample_times > t)
@@ -605,24 +667,40 @@ class DGSolver:
         for sample_index in candidate_indices:
             candidate_data = copy.deepcopy(self.LearnedData)
             candidate = candidate_data.AnalyzedData
-            for field in ("t", "state", "Cost2Go", "u2"):
+            for field in ("t", "state", "Cost2Go", "Cost2Go2", "u2"):
+                if not hasattr(analyzed, field):
+                    continue
                 values = np.asarray(getattr(analyzed, field))
                 setattr(candidate, field, values[[sample_index]])
             candidate.n_data = 1
             candidate_data_by_index[int(sample_index)] = candidate_data
 
         candidate_results = []
-        sample_count = len(candidate_data_by_index)
+        gammas = (
+            np.asarray([forced_alpha], dtype=float)
+            if forced_alpha is not None
+            else self.bargaining_gammas if self.cooperative
+            else [None]
+        )
+        jobs = [
+            (
+                sample_index,
+                candidate_data,
+                None if gamma is None else float(gamma),
+            )
+            for sample_index, candidate_data in candidate_data_by_index.items()
+            for gamma in gammas
+        ]
+        sample_count = len(jobs)
         if self.max_workers == 1:
-            for sample_number, (sample_index, candidate_data) in enumerate(
-                candidate_data_by_index.items(), start=1
-            ):
+            for sample_number, (sample_index, candidate_data, gamma) in enumerate(jobs, start=1):
                 self.Solution = copy.deepcopy(previous_solution)
-                candidate_solver = self._sampled_solver_cache.get(sample_index)
+                cache_key = (int(sample_index), gamma)
+                candidate_solver = self._sampled_solver_cache.get(cache_key)
                 self._step_once(
                     t,
                     x0,
-                    forced_alpha=forced_alpha,
+                    forced_alpha=gamma,
                     u1_0=u1_0,
                     u2_0=u2_0,
                     last_attempted_solution=last_attempted_solution,
@@ -633,12 +711,14 @@ class DGSolver:
                     sample_count=sample_count,
                 )
                 if candidate_solver is None:
-                    self._sampled_solver_cache[sample_index] = self.Solver
+                    self._sampled_solver_cache[cache_key] = self.Solver
                 if self.last_solve_success:
                     candidate_results.append(
                         (
                             sample_index,
+                            gamma,
                             self._player1_cost(self.Solution, candidate_data),
+                            self._player2_cost(self.Solution, candidate_data),
                             copy.deepcopy(self.Solution),
                             self.Solver,
                         )
@@ -660,24 +740,23 @@ class DGSolver:
                     sample_count,
                     t,
                     x0,
-                    forced_alpha,
+                    gamma,
                     u1_0,
                     u2_0,
                     a_set,
                     proximity_factor,
-                ): sample_index
-                for sample_number, (sample_index, candidate_data) in enumerate(
-                    candidate_data_by_index.items(), start=1
-                )
+                ): (sample_index, gamma)
+                for sample_number, (sample_index, candidate_data, gamma) in enumerate(jobs, start=1)
             }
             for future in as_completed(futures):
-                submitted_index = futures[future]
+                submitted_index, submitted_gamma = futures[future]
                 try:
-                    sample_index, cost, solution, error = future.result()
+                    sample_index, gamma, cost1, cost2, solution, error = future.result()
                 except Exception as exc:
                     if self.verbose:
+                        gamma_text = "adaptive" if submitted_gamma is None else f"{submitted_gamma:.3f}"
                         print(
-                            f"Terminal sample {submitted_index} worker failed: "
+                            f"Terminal sample {submitted_index}, gamma={gamma_text} worker failed: "
                             f"{type(exc).__name__}: {exc}"
                         )
                     continue
@@ -687,21 +766,45 @@ class DGSolver:
                     continue
                 if solution is not None:
                     candidate_results.append(
-                        (sample_index, cost, solution, None)
+                        (sample_index, gamma, cost1, cost2, solution, None)
                     )
-        prev_player1_predicted_cost = getattr(previous_solution, "player1_predicted_cost", np.inf)
-        for sample_index, candidate_cost, candidate_solution, candidate_solver in candidate_results:
-            # if candidate_cost < best_cost and current_cost1 + candidate_cost <= prev_player1_predicted_cost:
-            if candidate_cost < best_cost:
-                best_cost = candidate_cost
+
+        baseline = None
+        if self.cooperative and candidate_results:
+            baseline = disagreement_costs if disagreement_costs is not None else self.disagreement_costs
+            if baseline is None:
+                # Conservative default when no policy-specific disagreement
+                # point is provided: the componentwise worst feasible outcome.
+                baseline = (
+                    max(result[2] for result in candidate_results),
+                    max(result[3] for result in candidate_results),
+                )
+            baseline = np.asarray(baseline, dtype=float).reshape(-1)
+            if baseline.shape != (2,) or not np.all(np.isfinite(baseline)):
+                raise ValueError("disagreement_costs must be two finite costs (b1_t, b2_t)")
+            selected = select_nash_bargaining_result(candidate_results, baseline)
+            candidate_results = [] if selected is None else [selected]
+
+        for sample_index, gamma, cost1, cost2, candidate_solution, candidate_solver in candidate_results:
+            if self.cooperative or cost1 < best_cost:
+                best_cost = cost1
                 best_solution = candidate_solution
                 best_solver = candidate_solver
                 best_solution.terminal_sample_index = sample_index
                 best_solution.terminal_sample_time = float(sample_times[sample_index])
                 best_solution.terminal_sample_state = states[sample_index].copy()
-                best_solution.player1_cost = candidate_cost
-                best_solution.player1_predicted_cost = current_cost1 + candidate_cost
+                best_solution.player1_cost = cost1
+                best_solution.player2_cost = cost2
+                best_solution.player1_predicted_cost = current_cost1 + cost1
+                best_solution.player2_predicted_cost = current_cost2 + cost2
+                if baseline is not None:
+                    best_solution.bargaining_gamma = gamma
+                    best_solution.disagreement_costs = baseline.copy()
+                    best_solution.bargaining_improvements = baseline - np.array([cost1, cost2])
+                    best_solution.nash_product = float(np.prod(best_solution.bargaining_improvements))
                 best_solution.terminal_workers = self.max_workers
+                if self.cooperative:
+                    break
 
         if best_solution is None:
             self.Solution = previous_solution
@@ -740,6 +843,27 @@ class DGSolver:
         cost_to_go = np.asarray(learned_data.AnalyzedData.Cost2Go, dtype=float).reshape(-1)
         weights = np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1) if solution.ai_xf_vec.shape[0]>1 else np.asarray(1, dtype=float).reshape(-1)
         return cost + float(cost_to_go @ weights)
+
+    def _player2_cost(self, solution, learned_data):
+        """Evaluate player 2's primal cost for a candidate agreement."""
+        cost = 0.0
+        for k in range(self.N):
+            cost += float(
+                self.l2(
+                    solution.x2[k], solution.u2[k],
+                    solution.x1[k], solution.u1[k],
+                )
+            )
+        analyzed = learned_data.AnalyzedData
+        if hasattr(analyzed, "Cost2Go2"):
+            cost_to_go = np.asarray(analyzed.Cost2Go2, dtype=float).reshape(-1)
+            if cost_to_go.size:
+                weights = (
+                    np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1)
+                    if solution.ai_xf_vec.shape[0] > 1 else np.ones(1)
+                )
+                cost += float(cost_to_go @ weights)
+        return cost
 
     def _step_once(
         self,
@@ -802,6 +926,10 @@ class DGSolver:
                 # LearnedData1.AnalyzedData.c = np.array(LearnedData1.AnalyzedData.c)[future]
                 LearnedData1.AnalyzedData.state = np.array(LearnedData1.AnalyzedData.state)[future]
                 LearnedData1.AnalyzedData.Cost2Go = np.array(LearnedData1.AnalyzedData.Cost2Go)[future]
+                if hasattr(LearnedData1.AnalyzedData, "Cost2Go2"):
+                    LearnedData1.AnalyzedData.Cost2Go2 = np.array(
+                        LearnedData1.AnalyzedData.Cost2Go2
+                    )[future]
                 LearnedData1.AnalyzedData.n_data = LearnedData1.AnalyzedData.t.shape[0]
             else:
                 LearnedData1 = None

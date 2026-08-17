@@ -48,6 +48,7 @@ def init_analyzed_data():
     analyzed_data.state = []
     analyzed_data.u2 = []
     analyzed_data.Cost2Go = []
+    analyzed_data.Cost2Go2 = []
     analyzed_data.n_data = 0
     return analyzed_data
 
@@ -151,13 +152,15 @@ def rebuild_analyzed_data(
             float(solver.l2(state[game.nx1:], u[game.nu1:], state[:game.nx1], u[:game.nu1:]))
             for state, u in zip(states, raw_data.u)
         ]
-        raw_data.p2_total_cost = float(sum(p2_stage_costs))
+        p2_costs_to_go = np.cumsum(p2_stage_costs[::-1])[::-1]
+        raw_data.p2_total_cost = float(p2_costs_to_go[0])
 
-        for t, state, u, p1_cost_to_go in zip(
+        for t, state, u, p1_cost_to_go, p2_cost_to_go in zip(
             raw_data.t,
             states,
             raw_data.u,
             p1_costs_to_go,
+            p2_costs_to_go,
         ):
             if any( ca.bilin(solver.proximity_Q, saved_state - state)  <= 1e-12 for saved_state in analyzed_data.state ): continue
 
@@ -166,6 +169,7 @@ def rebuild_analyzed_data(
 
             # analyzed_data.c.append(np.array([cx_min, cx_max, cy_min, cy_max]))
             analyzed_data.Cost2Go.append(p1_cost_to_go)
+            analyzed_data.Cost2Go2.append(p2_cost_to_go)
             analyzed_data.u2.append(u[2:4])
 
     analyzed_data.n_data = len(analyzed_data.state)

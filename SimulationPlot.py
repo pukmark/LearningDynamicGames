@@ -129,8 +129,8 @@ def save_simulation_figure(path="LDG_Simulation.png"):
 
 def plot_simulation_init(game):
     plt.ion()
-    plot_rows = 5 if game.is_single_integrator else 6
-    fig = plt.figure(figsize=(13, 13 if game.is_single_integrator else 15))
+    plot_rows = 6 if game.is_single_integrator else 7
+    fig = plt.figure(figsize=(13, 15 if game.is_single_integrator else 17))
     gs = fig.add_gridspec(plot_rows, 2, width_ratios=(2.0, 1.0))
     ax_xy = fig.add_subplot(gs[:-1, 0])
     ax_xpos = fig.add_subplot(gs[0, 1])
@@ -140,9 +140,12 @@ def plot_simulation_init(game):
     if game.is_single_integrator:
         ax_velocity = None
         ax_distance = fig.add_subplot(gs[3, 1])
+        ax_bargaining = fig.add_subplot(gs[4, 1])
     else:
         ax_velocity = fig.add_subplot(gs[3, 1])
         ax_distance = fig.add_subplot(gs[4, 1])
+        ax_bargaining = fig.add_subplot(gs[5, 1])
+    ax_nash_product = ax_bargaining.twinx()
 
     lines = {}
     lines["p1_state"], = ax_xy.plot([], [], "C0-", label="P1 state")
@@ -185,6 +188,14 @@ def plot_simulation_init(game):
     )
     lines["p2_terminal_candidates"], = ax_xy.plot(
         [], [], "C1x", alpha=0.75, linestyle="none", label="P2 examined terminals"
+    )
+    lines["p1_selected_terminal"], = ax_xy.plot(
+        [], [], marker="*", color="C4", markersize=13, linestyle="none",
+        label="P1 bargained terminal",
+    )
+    lines["p2_selected_terminal"], = ax_xy.plot(
+        [], [], marker="*", color="C5", markersize=13, linestyle="none",
+        label="P2 bargained terminal",
     )
     lines["Target1"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 1", linewidth=3)
     lines["Target2"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 2", linewidth=3)
@@ -307,6 +318,27 @@ def plot_simulation_init(game):
     ax_distance.grid(True, alpha=0.3)
     # ax_distance.legend(loc="best")
 
+    lines["bargaining_gamma"], = ax_bargaining.plot(
+        [], [], "C4-o", markersize=3, linewidth=1.5, label=r"chosen $\gamma^*$"
+    )
+    lines["nash_product"], = ax_nash_product.plot(
+        [], [], "C2--", linewidth=1.5, label=r"$\Delta_1\Delta_2$"
+    )
+    bargaining_text = ax_bargaining.text(
+        0.02, 0.04, "No bargaining agreement yet",
+        transform=ax_bargaining.transAxes,
+        va="bottom", ha="left", fontsize=8, family="monospace",
+        bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "alpha": 0.82},
+    )
+    ax_bargaining.set_xlabel("time")
+    ax_bargaining.set_ylabel(r"$\gamma^*$", color="C4")
+    ax_bargaining.set_ylim(-0.05, 1.05)
+    ax_bargaining.tick_params(axis="y", labelcolor="C4")
+    ax_bargaining.set_title("Cooperative Nash bargaining")
+    ax_bargaining.grid(True, alpha=0.3)
+    ax_nash_product.set_ylabel("Nash product", color="C2")
+    ax_nash_product.tick_params(axis="y", labelcolor="C2")
+
     fig.tight_layout()
     state = {
         "fig": fig,
@@ -317,6 +349,9 @@ def plot_simulation_init(game):
         "ax_velocity": ax_velocity,
         "ax_cost": ax_cost,
         "ax_distance": ax_distance,
+        "ax_bargaining": ax_bargaining,
+        "ax_nash_product": ax_nash_product,
+        "bargaining_text": bargaining_text,
         "lines": lines,
         "separation_circles": separation_circles,
         "iteration": game.iteration,
@@ -325,6 +360,9 @@ def plot_simulation_init(game):
         "cost_labels": [],
         "plotted_iteration_costs": None,
         "predicted_cost1": None,
+        "bargaining_times": [],
+        "bargaining_gammas": [],
+        "nash_products": [],
     }
     plot_simulation._state = state
     if plt.get_backend().lower() != "agg":
@@ -344,6 +382,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ax_velocity = state["ax_velocity"]
     ax_cost = state["ax_cost"]
     ax_distance = state["ax_distance"]
+    ax_bargaining = state["ax_bargaining"]
+    ax_nash_product = state["ax_nash_product"]
 
     history = game.get_history()
     t = history["t"]
@@ -375,6 +415,9 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 )
             state["past_xy_lines"].extend((past_p1, past_p2))
         state["iteration"] = game.iteration
+        state["bargaining_times"].clear()
+        state["bargaining_gammas"].clear()
+        state["nash_products"].clear()
 
     lines["p1_state"].set_data(x[:, 0], x[:, 1])
     lines["p2_state"].set_data(x[:, p2_i], x[:, p2_i + 1])
@@ -408,6 +451,73 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     solution = getattr(solver1, "Solution", None)
     solver2_solution = getattr(solver2, "Solution", None)
 
+    try:
+        bargaining_gamma = float(getattr(solution, "bargaining_gamma", np.nan))
+    except (TypeError, ValueError):
+        bargaining_gamma = np.nan
+    try:
+        nash_product = float(getattr(solution, "nash_product", np.nan))
+    except (TypeError, ValueError):
+        nash_product = np.nan
+    if np.isfinite(bargaining_gamma) and np.isfinite(nash_product):
+        agreement_time = float(getattr(solution, "t", game.t))
+        if (
+            state["bargaining_times"]
+            and np.isclose(state["bargaining_times"][-1], agreement_time)
+        ):
+            state["bargaining_gammas"][-1] = float(bargaining_gamma)
+            state["nash_products"][-1] = float(nash_product)
+        else:
+            state["bargaining_times"].append(agreement_time)
+            state["bargaining_gammas"].append(float(bargaining_gamma))
+            state["nash_products"].append(float(nash_product))
+
+    lines["bargaining_gamma"].set_data(
+        state["bargaining_times"], state["bargaining_gammas"]
+    )
+    lines["nash_product"].set_data(
+        state["bargaining_times"], state["nash_products"]
+    )
+    if state["bargaining_times"]:
+        ax_bargaining.set_xlim(
+            min(0.0, state["bargaining_times"][0]),
+            max(game.dt, game.t, state["bargaining_times"][-1] + game.dt),
+        )
+        ax_nash_product.relim()
+        ax_nash_product.autoscale_view(scalex=False)
+
+    baseline = np.asarray(
+        getattr(solution, "disagreement_costs", []), dtype=float
+    ).reshape(-1)
+    improvements = np.asarray(
+        getattr(solution, "bargaining_improvements", []), dtype=float
+    ).reshape(-1)
+    costs = np.asarray(
+        [
+            getattr(solution, "player1_cost", np.nan),
+            getattr(solution, "player2_cost", np.nan),
+        ],
+        dtype=float,
+    )
+    terminal_index = getattr(solution, "terminal_sample_index", None)
+    terminal_time = getattr(solution, "terminal_sample_time", np.nan)
+    if (
+        np.isfinite(bargaining_gamma)
+        and np.isfinite(nash_product)
+        and baseline.shape == (2,)
+        and improvements.shape == (2,)
+        and np.all(np.isfinite(costs))
+    ):
+        state["bargaining_text"].set_text(
+            f"z*: sample {terminal_index}, safe t={terminal_time:.2f}\n"
+            f"gamma*={float(bargaining_gamma):.3f}   Nash={float(nash_product):.3g}\n"
+            f"C=({costs[0]:.3g}, {costs[1]:.3g})\n"
+            f"b=({baseline[0]:.3g}, {baseline[1]:.3g})\n"
+            f"Delta=({improvements[0]:.3g}, {improvements[1]:.3g})"
+        )
+    else:
+        state["bargaining_text"].set_text("No bargaining agreement yet")
+
     candidate_terminal_states = np.asarray(
         getattr(solution, "candidate_terminal_states", []), dtype=float
     )
@@ -438,6 +548,20 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         lines["p2_terminal_candidates"].set_data([], [])
         lines["x_joint_terminal_candidates"].set_data([], [])
         lines["y_joint_terminal_candidates"].set_data([], [])
+
+    selected_terminal = np.asarray(
+        getattr(solution, "terminal_sample_state", []), dtype=float
+    ).reshape(-1)
+    if selected_terminal.shape == (game.nx,) and np.isfinite(bargaining_gamma):
+        lines["p1_selected_terminal"].set_data(
+            [selected_terminal[0]], [selected_terminal[1]]
+        )
+        lines["p2_selected_terminal"].set_data(
+            [selected_terminal[p2_i]], [selected_terminal[p2_i + 1]]
+        )
+    else:
+        lines["p1_selected_terminal"].set_data([], [])
+        lines["p2_selected_terminal"].set_data([], [])
 
     raw_data = getattr(learned_data, "RawData", [])
     completed_iteration_costs = tuple(
@@ -675,7 +799,15 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         ax_velocity.relim()
         ax_velocity.autoscale_view()
         
-    ax_xy.set_title(f"XY trajectory - Iteration: {game.iteration}, alpha1={solver1.alpha_vec[0,0]:2.2}, alpha2={solver2.alpha_vec[0,0]:2.2}, time: {game.t:2.2}")
+    equilibrium_label = (
+        rf"$\gamma^*$={float(bargaining_gamma):.2f}"
+        if np.isfinite(bargaining_gamma)
+        else f"alpha1={solver1.alpha_vec[0,0]:.2f}, alpha2={solver2.alpha_vec[0,0]:.2f}"
+    )
+    ax_xy.set_title(
+        f"XY trajectory - Iteration: {game.iteration}, {equilibrium_label}, "
+        f"time: {game.t:.2f}"
+    )
 
     fig.canvas.draw_idle()
     if plt.get_backend().lower() != "agg" and pause is not None:
