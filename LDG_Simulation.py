@@ -65,6 +65,22 @@ if __name__ == '__main__':
             "the previous totals minus costs executed so far"
         ),
     )
+    parser.add_argument(
+        "--movie", default="LDG_Simulation.mp4", metavar="PATH",
+        help="save the evolving figure as an MP4 or GIF (default: LDG_Simulation.mp4)",
+    )
+    parser.add_argument(
+        "--movie-fps", type=float, default=10.0,
+        help="movie frames per second (default: 10)",
+    )
+    parser.add_argument(
+        "--movie-dpi", type=float, default=100.0,
+        help="movie resolution in dots per inch (default: 100)",
+    )
+    parser.add_argument(
+        "--no-movie", action="store_true",
+        help="disable movie export",
+    )
     args = parser.parse_args()
     cooperative = cooperative_mode or args.cooperative
     gamma_grid = (
@@ -86,6 +102,11 @@ if __name__ == '__main__':
     
     Solver2 = DGSolver(Game, x1f=x1f, x2f=x2f, alpha=alpha2)
     plot_simulation_init(Game)
+    movie_path = None
+    if not args.no_movie:
+        movie_path = start_simulation_movie(
+            args.movie, fps=args.movie_fps, dpi=args.movie_dpi
+        )
 
     # Start Julia/PATHSolver once for this simulation execution. The main
     # process and persistent terminal workers are reused by every iteration.
@@ -278,7 +299,10 @@ if __name__ == '__main__':
     save_learned_data(LearnedData, learned_data_path)
     plot_simulation(Game, Solver1, Solver2, LearnedData, pause=None)
     figure_path = save_simulation_figure()
+    movie_path = finish_simulation_movie()
     close_simulation_plots()
     print(f"Saved figure to {figure_path}")
+    if movie_path is not None:
+        print(f"Saved movie to {movie_path}")
     print(f"Saved learned data to {learned_data_path}")
     print("Done!!!")

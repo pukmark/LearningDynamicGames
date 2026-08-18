@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import animation
 from matplotlib.patches import Circle, Patch
+from pathlib import Path
 
 eps = 1e-1
 
@@ -95,6 +97,8 @@ def close_simulation_plots():
     """Clear plot state and close all matplotlib figures."""
     state = getattr(plot_simulation, "_state", None)
     if state is not None:
+        if state.get("movie_writer") is not None:
+            finish_simulation_movie()
         state["fig"].clf()
         plot_simulation._state = None
     plt.close("all")
@@ -110,6 +114,67 @@ def save_simulation_figure(path="LDG_Simulation.png"):
     figure.canvas.draw()
     figure.savefig(path, dpi=300, bbox_inches="tight")
     return path
+
+
+def start_simulation_movie(path="LDG_Simulation.mp4", fps=10, dpi=100):
+    """Start recording each subsequent plot update to an MP4 or GIF movie."""
+    state = getattr(plot_simulation, "_state", None)
+    if state is None:
+        raise RuntimeError("Simulation plot has not been initialized")
+    if state.get("movie_writer") is not None:
+        raise RuntimeError("A simulation movie is already being recorded")
+    if fps <= 0:
+        raise ValueError("movie fps must be positive")
+    if dpi <= 0:
+        raise ValueError("movie dpi must be positive")
+
+    output_path = Path(path)
+    suffix = output_path.suffix.lower()
+    if suffix == ".mp4":
+        if not animation.writers.is_available("ffmpeg"):
+            raise RuntimeError("MP4 export requires ffmpeg")
+        writer = animation.FFMpegWriter(
+            fps=fps,
+            codec="h264",
+            metadata={"title": "Learning Dynamic Game Simulation"},
+            extra_args=["-pix_fmt", "yuv420p"],
+        )
+    elif suffix == ".gif":
+        writer = animation.PillowWriter(fps=fps)
+    else:
+        raise ValueError("movie path must end in .mp4 or .gif")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer.setup(state["fig"], str(output_path), dpi=dpi)
+    state["movie_writer"] = writer
+    state["movie_path"] = str(output_path)
+    state["movie_frame_count"] = 0
+    return str(output_path)
+
+
+def finish_simulation_movie():
+    """Finalize the active movie and return its path, or None if inactive."""
+    state = getattr(plot_simulation, "_state", None)
+    if state is None or state.get("movie_writer") is None:
+        return None
+
+    writer = state["movie_writer"]
+    movie_path = state["movie_path"]
+    try:
+        writer.finish()
+    finally:
+        state["movie_writer"] = None
+    return movie_path
+
+
+def _record_simulation_movie_frame(state):
+    """Append the fully rendered current figure to the active movie."""
+    writer = state.get("movie_writer")
+    if writer is None:
+        return
+    state["fig"].canvas.draw()
+    writer.grab_frame()
+    state["movie_frame_count"] += 1
 
 
 def plot_simulation_init(game):
@@ -303,6 +368,9 @@ def plot_simulation_init(game):
         "bargaining_times": [],
         "bargaining_gammas": [],
         "nash_products": [],
+        "movie_writer": None,
+        "movie_path": None,
+        "movie_frame_count": 0,
     }
     plot_simulation._state = state
     if plt.get_backend().lower() != "agg":
@@ -703,6 +771,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     )
 
     fig.canvas.draw_idle()
+    _record_simulation_movie_frame(state)
     if plt.get_backend().lower() != "agg" and pause is not None:
         plt.pause(pause)
     return fig
