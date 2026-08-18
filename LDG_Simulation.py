@@ -34,7 +34,7 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # state and the shared-constraint equilibrium weight by Nash bargaining. Its
 # joint control output is applied to both players.
 cooperative_mode = True
-bargaining_gammas = np.array([0.35, 0.45, 0.5, 0.55, 0.65])
+bargaining_gammas = np.array([0.45, 0.5, 0.55])
 # bargaining_gammas = np.array([0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
 # the bootstrap use the previous completed totals minus costs executed so far.
