@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from DGSolver import (
+    DGSolver,
     _solve_sampled_terminal_gamma_sequence,
     filter_monotonic_cost_candidates,
     select_nash_bargaining_result,
@@ -131,6 +132,33 @@ class LearnedCostToGoTests(unittest.TestCase):
 
         np.testing.assert_allclose(learned_data.AnalyzedData.Cost2Go, [2.0, 1.0])
         np.testing.assert_allclose(learned_data.AnalyzedData.Cost2Go2, [4.0, 2.0])
+
+
+class LearnedPlayer2ActionTests(unittest.TestCase):
+    def test_cooperative_mode_does_not_read_saved_player2_action(self):
+        class AnalyzedData:
+            @property
+            def u2(self):
+                raise AssertionError("cooperative mode read the saved u2 action")
+
+        solver = DGSolver.__new__(DGSolver)
+        solver.cooperative = True
+        solver.LearnedData = SimpleNamespace(AnalyzedData=AnalyzedData())
+
+        self.assertIsNone(solver._learned_player2_action(np.array([1.0])))
+
+    def test_non_cooperative_mode_preserves_saved_player2_action(self):
+        solver = DGSolver.__new__(DGSolver)
+        solver.cooperative = False
+        solver.LearnedData = SimpleNamespace(
+            AnalyzedData=SimpleNamespace(
+                u2=np.array([[1.0, 2.0], [3.0, 4.0]])
+            )
+        )
+
+        learned_action = solver._learned_player2_action(np.array([0.25, 0.75]))
+
+        np.testing.assert_allclose(learned_action, [2.5, 3.5])
 
 
 class SimpleControllerTests(unittest.TestCase):

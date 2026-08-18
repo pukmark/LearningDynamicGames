@@ -218,10 +218,10 @@ if __name__ == '__main__':
             player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f))
             player2_distance = float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f))
             
-            if player1_distance <= 10*Solver1.proximity_minval:
-                Game.x[:Game.nx1] = Game.x1f.copy()
-            if player2_distance <= 10*Solver2.proximity_minval:
-                Game.x[Game.nx1:] = Game.x2f.copy()
+            # if player1_distance <= 10*Solver1.proximity_minval:
+            #     Game.x[:Game.nx1] = Game.x1f.copy()
+            # if player2_distance <= 10*Solver2.proximity_minval:
+            #     Game.x[Game.nx1:] = Game.x2f.copy()
 
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
@@ -240,6 +240,8 @@ if __name__ == '__main__':
         else:
             LearnedData.RawData[iter].arrival_time_difference = np.nan
 
+        current_cost1 += float(Solver1.l1(Game.x[:Game.nx1], np.zeros_like(u1[:Game.nu1]), Game.x[Game.nx1:], np.zeros_like(u2[Game.nu1:])))
+        current_cost2 += float(Solver1.l2(Game.x[Game.nx1:], np.zeros_like(u2[Game.nu1:]), Game.x[:Game.nx1], np.zeros_like(u1[:Game.nu1])))
         append_terminal_learned_state(LearnedData, Game, iter)
         
         if EndGame and GameFlag is not Game.STEP_OK:

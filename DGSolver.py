@@ -44,7 +44,7 @@ def solution_has_no_interaction(solution, tolerance=1e-8):
     return sigma.size == 0 or np.all(np.abs(sigma) <= tolerance)
 
 
-def select_nash_bargaining_result(candidate_results, disagreement_costs):
+def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_tol = 1e-1):
     """Return the individually rational candidate with largest Nash product.
 
     Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
@@ -59,13 +59,13 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs):
         raise ValueError("disagreement_costs must be two finite costs (b1_t, b2_t)")
     acceptable = [
         result for result in candidate_results
-        if result[2] <= baseline[0] + 1e-10
-        and result[3] <= baseline[1] + 1e-10
+        if result[2] <= baseline[0] + cost_tol
+        and result[3] <= baseline[1] + cost_tol
     ]
     if not acceptable:
         return None
 
-    improvement_tolerance = 1e-10
+    improvement_tolerance = 1e-1
     improvements = np.asarray(
         [
             (
@@ -101,7 +101,7 @@ def filter_monotonic_cost_candidates(
     candidate_results,
     executed_costs,
     previous_iteration_costs,
-    tolerance=1e-10,
+    tolerance=1e-1,
 ):
     """Keep candidates that do not worsen either player's prior total cost."""
     executed = np.asarray(executed_costs, dtype=float).reshape(-1)
@@ -372,6 +372,7 @@ class DGSolver:
         self.verbose = verbose
         self.nms = True
         self.use_slack = False
+        self.cost_tol = 1e-1
         
         self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
         self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
@@ -397,6 +398,14 @@ class DGSolver:
         self.Solution.player1_predicted_cost = prev_best_cost
         self.last_solve_success = False
 
+    def _learned_player2_action(self, a_set):
+        """Return the saved player-2 action only in non-cooperative mode."""
+        if self.cooperative or self.LearnedData is None:
+            return None
+        if abs(np.sum(a_set) - 1.0) < 1e-5:
+            return a_set @ self.LearnedData.AnalyzedData.u2
+        return None
+
     def build_solver(self, u2_0 = None, Terminal_Safe_Set = None):
         """
         Build the dynamic game solver.
@@ -404,6 +413,11 @@ class DGSolver:
         This is a placeholder for constructing optimization variables,
         constraints, costs, and the numerical backend.
         """
+        # In cooperative mode both controls are chosen by Solver1.  A player-2
+        # action stored with the learned safe set must therefore never pin the
+        # first action of the new trajectory.
+        if self.cooperative:
+            u2_0 = None
                 
         # Player 1 trajectory variables over the horizon.
         x1 = ca.SX.sym('x1',self.N+1, self.game.nx1)
@@ -761,23 +775,26 @@ class DGSolver:
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
         Cost2Go = np.asarray(analyzed.Cost2Go)
+        Cost2Go2 = np.asarray(analyzed.Cost2Go2)
         sample_times = np.asarray(analyzed.t)
         previous_solution = copy.deepcopy(self.Solution)
         terminal_sample_index = getattr(previous_solution, "terminal_sample_index", -1)
         prev_cost2go = Cost2Go[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
+        prev_cost2go2 = Cost2Go2[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         distance_to_terminal = np.linalg.norm(states[:,:2] - x0[:2], axis=1)
         if not use_all_terminal_points:
-            cost_filter = (
-                np.ones(Cost2Go.shape, dtype=bool)
-                if self.cooperative else Cost2Go <= prev_cost2go + 1e-5
-            )
+            if self.cooperative:
+                cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) & (Cost2Go2 <= prev_cost2go2 + self.cost_tol)
+            else:
+                cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
+                
             candidate_indices = np.where(
                 cost_filter
                 & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
                 & (distance_to_terminal <= np.sqrt(2) * self.game.vx_max * self.N * self.dt)
-                & (sample_times > t + self.N * self.dt - 1e-5)
+                & (sample_times > t + (self.N-3) * self.dt - 1e-5)
                 
             )[0]
         else:
@@ -794,11 +811,16 @@ class DGSolver:
         for sample_index in candidate_indices:
             candidate_data = copy.deepcopy(self.LearnedData)
             candidate = candidate_data.AnalyzedData
-            for field in ("t", "state", "Cost2Go", "Cost2Go2", "u2"):
+            fields = ("t", "state", "Cost2Go", "Cost2Go2")
+            if not self.cooperative:
+                fields += ("u2",)
+            for field in fields:
                 if not hasattr(analyzed, field):
                     continue
                 values = np.asarray(getattr(analyzed, field))
                 setattr(candidate, field, values[[sample_index]])
+            if self.cooperative and hasattr(candidate, "u2"):
+                candidate.u2 = None
             candidate.n_data = 1
             candidate_data_by_index[int(sample_index)] = candidate_data
 
@@ -1060,12 +1082,7 @@ class DGSolver:
         else:
             a_set, proximity_factor = self.calc_a_set(x0)
         
-        if abs(np.sum(a_set)-1.0)< 1e-5:
-            # c1_vec = a_set @ self.LearnedData.AnalyzedData.c
-            u2_Learned = a_set @ self.LearnedData.AnalyzedData.u2
-        else:
-            # c1_vec = np.array([-10+self.game.u_min, 10+self.game.u_max, -10+self.game.u_min, 10+self.game.u_max,])
-            u2_Learned = None
+        u2_Learned = self._learned_player2_action(a_set)
         
         alpha_vec = self.alpha_vec
         if forced_alpha is not None:
@@ -1113,8 +1130,8 @@ class DGSolver:
         n_z = int(self.Solver.Z.shape[0])
         if u1_0 is None:
             u1 = np.ones((self.N, self.game.nu1))
-            u1[:,0] *= -self.game.u_max
-            u1[:,1] *= -self.game.u_max
+            u1[:,0] *= -self.game.u_max*0.01
+            u1[:,1] *= -self.game.u_max*0.01
         else:
             u1 = np.asarray(u1_0, dtype=float)
             u1 = u1[:self.N, :]
@@ -1123,8 +1140,8 @@ class DGSolver:
 
         if u2_0 is None:
             u2 = np.ones((self.N, self.game.nu2))
-            u2[:,0] *= self.game.u_max
-            u2[:,1] *= self.game.u_max
+            u2[:,0] *= self.game.u_max*0.01
+            u2[:,1] *= self.game.u_max*0.01
         else:
             u2 = np.asarray(u2_0, dtype=float)
             u2 = u2[:self.N, :]

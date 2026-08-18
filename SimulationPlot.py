@@ -504,6 +504,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             _player1_executed_cost(x, u, game, solver1)
             + float(predicted_cost1_to_go),
         )
+        if solver1.Solution.indx > 0:
+            predicted_cost1 = (game.iteration, solver1.Solution.player1_predicted_cost)
         state["predicted_cost1"] = predicted_cost1
     else:
         predicted_cost1 = state["predicted_cost1"]
@@ -518,6 +520,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             _player2_executed_cost(x, u, game, solver1)
             + float(predicted_cost2_to_go),
         )
+        if solver1.Solution.indx > 0:
+            predicted_cost2 = (game.iteration, solver1.Solution.player2_predicted_cost)
         state["predicted_cost2"] = predicted_cost2
     else:
         predicted_cost2 = state["predicted_cost2"]
