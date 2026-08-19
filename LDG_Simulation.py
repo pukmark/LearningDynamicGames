@@ -35,7 +35,7 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # joint control output is applied to both players.
 cooperative_mode = True
 bargaining_gammas = np.array([0.45, 0.5, 0.55])
-# bargaining_gammas = np.array([0.5])
+bargaining_gammas = np.array([0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
 # the bootstrap use the previous completed totals minus costs executed so far.
 disagreement_costs = None
@@ -121,8 +121,8 @@ if __name__ == '__main__':
             cooperative=cooperative,
             bargaining_gammas=gamma_grid,
             disagreement_costs=baseline_costs,
-        )
-        # Solver1 = DGSolver(Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData, alpha=alpha1, max_workers=max_workers, prev_best_cost=np.inf)
+        )        
+        
         EndGame = False
         current_cost1 = 0.0
         current_cost2 = 0.0

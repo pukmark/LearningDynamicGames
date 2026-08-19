@@ -44,7 +44,7 @@ def solution_has_no_interaction(solution, tolerance=1e-8):
     return sigma.size == 0 or np.all(np.abs(sigma) <= tolerance)
 
 
-def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_tol = 1e-1):
+def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_tol = 1e-5):
     """Return the individually rational candidate with largest Nash product.
 
     Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
@@ -65,7 +65,7 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_to
     if not acceptable:
         return None
 
-    improvement_tolerance = 1e-1
+    improvement_tolerance = 1e-5
     improvements = np.asarray(
         [
             (
@@ -101,7 +101,7 @@ def filter_monotonic_cost_candidates(
     candidate_results,
     executed_costs,
     previous_iteration_costs,
-    tolerance=1e-1,
+    tolerance=1e-5,
 ):
     """Keep candidates that do not worsen either player's prior total cost."""
     executed = np.asarray(executed_costs, dtype=float).reshape(-1)
@@ -372,7 +372,7 @@ class DGSolver:
         self.verbose = verbose
         self.nms = True
         self.use_slack = False
-        self.cost_tol = 1e-1
+        self.cost_tol = 1e-5
         
         self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
         self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
@@ -397,6 +397,9 @@ class DGSolver:
         self.Solution.terminal_sample_state = None
         self.Solution.player1_predicted_cost = prev_best_cost
         self.last_solve_success = False
+        
+        if game.iteration > 1 and LearnedData is not None:
+            self.backup_controller_init()
 
     def _learned_player2_action(self, a_set):
         """Return the saved player-2 action only in non-cooperative mode."""
@@ -761,9 +764,17 @@ class DGSolver:
                 disagreement_costs=disagreement_costs,
                 previous_iteration_costs=previous_iteration_costs,
             )
-        return self._step_once(
-            t, x0, forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=last_attempted_solution
+        control = self._step_once(
+            t,
+            x0,
+            forced_alpha=forced_alpha,
+            u1_0=u1_0,
+            u2_0=u2_0,
+            last_attempted_solution=last_attempted_solution,
         )
+        if not self.last_solve_success and hasattr(self, "backup"):
+            return self.backup_controller(x0)
+        return control
 
     def _step_over_sampled_terminal_states(
         self, t, x0, current_cost1=0.0, current_cost2=0.0,
@@ -999,6 +1010,8 @@ class DGSolver:
                 self.Solution.previous_iteration_costs = monotonic_limits.copy()
             self.Solution.candidate_indices = candidate_indices.copy()
             self.Solution.candidate_terminal_states = candidate_terminal_states.copy()
+            if hasattr(self, "backup"):
+                return self.backup_controller(x0)
             if hasattr(self.Solution, "u1") and hasattr(self.Solution, "u2"):
                 t_vec = np.arange(self.N) * self.dt+self.Solution.t
                 indx = np.argmin(np.abs(t_vec - t))
@@ -1018,6 +1031,8 @@ class DGSolver:
                 Terminal_Safe_Set=candidate_data_by_index[best_solution.terminal_sample_index].AnalyzedData)
         self.Solver = best_solver
         self.last_solve_success = True
+        
+        self.backup_controller_update(self.Solution)
         return np.concatenate((best_solution.u1[0], best_solution.u2[0]))
 
     def _player1_cost(self, solution, learned_data):
@@ -1518,3 +1533,212 @@ class DGSolver:
         return a_vec1, proximity_factor
         
         
+    def backup_controller_init(self):
+        self.backup = SimpleNamespace()
+        self.backup.time = np.asarray(
+            self.LearnedData.RawData[-1].t, dtype=float
+        ).copy()
+        self.backup.x = np.asarray(
+            self.LearnedData.RawData[-1].x, dtype=float
+        ).copy()
+        self.backup.u = np.asarray(
+            self.LearnedData.RawData[-1].u, dtype=float
+        ).copy()
+        self.backup.cost1 = self.LearnedData.RawData[-1].p1_total_cost
+        self.backup.cost2 = self.LearnedData.RawData[-1].p2_total_cost
+        self.backup.indx = 0
+        
+    def backup_controller_update(self, Solution):
+        """Replace the backup with ``Solution`` followed by a learned suffix.
+
+        The optimized trajectory ends at a state sampled from a previous safe
+        trajectory.  Locate that state in ``LearnedData.RawData`` and splice
+        the remainder of the saved trajectory onto the optimized prefix.  A
+        state is stored once at the splice, while its saved control is retained
+        because it drives the system from the terminal state toward the next
+        saved state.
+        """
+        if self.LearnedData is None or not self.LearnedData.RawData:
+            raise ValueError("cannot update backup without learned raw data")
+
+        required_fields = ("x1", "x2", "u1", "u2", "t")
+        missing_fields = [
+            field for field in required_fields if not hasattr(Solution, field)
+        ]
+        if missing_fields:
+            raise ValueError(
+                "Solution is missing required backup fields: "
+                + ", ".join(missing_fields)
+            )
+
+        x1 = np.asarray(Solution.x1, dtype=float)
+        x2 = np.asarray(Solution.x2, dtype=float)
+        u1 = np.asarray(Solution.u1, dtype=float)
+        u2 = np.asarray(Solution.u2, dtype=float)
+        if x1.ndim != 2 or x2.ndim != 2 or x1.shape[0] != x2.shape[0]:
+            raise ValueError("Solution.x1 and Solution.x2 must have equal-length trajectories")
+        if u1.ndim != 2 or u2.ndim != 2 or u1.shape[0] != u2.shape[0]:
+            raise ValueError("Solution.u1 and Solution.u2 must have equal-length trajectories")
+        if x1.shape[0] != u1.shape[0] + 1:
+            raise ValueError("the solution must contain one more state than control")
+
+        solution_states = np.concatenate((x1, x2), axis=1)
+        solution_controls = np.concatenate((u1, u2), axis=1)
+        if solution_states.shape[1] != self.game.nx:
+            raise ValueError(f"solution states must have {self.game.nx} elements")
+        if solution_controls.shape[1] != self.game.nu:
+            raise ValueError(f"solution controls must have {self.game.nu} elements")
+
+        terminal_state = getattr(Solution, "terminal_sample_state", None)
+        if terminal_state is None:
+            terminal_state = solution_states[-1]
+        terminal_state = np.asarray(terminal_state, dtype=float).reshape(-1)
+        if terminal_state.shape != (self.game.nx,):
+            raise ValueError(
+                f"Solution.terminal_sample_state must have {self.game.nx} elements"
+            )
+
+        terminal_sample_time = float(
+            getattr(Solution, "terminal_sample_time", np.nan)
+        )
+        matches = []
+        for raw_iteration, raw_data in reversed(
+            list(enumerate(self.LearnedData.RawData))
+        ):
+            raw_states = np.asarray(raw_data.x, dtype=float)
+            raw_times = np.asarray(raw_data.t, dtype=float).reshape(-1)
+            raw_controls = np.asarray(raw_data.u, dtype=float)
+            if (
+                raw_states.ndim != 2
+                or raw_states.shape[1] != self.game.nx
+                or raw_controls.ndim != 2
+                or raw_controls.shape != (raw_states.shape[0], self.game.nu)
+                or raw_times.shape[0] != raw_states.shape[0]
+            ):
+                continue
+
+            state_matches = np.flatnonzero(
+                np.all(
+                    np.isclose(
+                        raw_states,
+                        terminal_state,
+                        rtol=1e-7,
+                        atol=1e-9,
+                    ),
+                    axis=1,
+                )
+            )
+            for raw_index in state_matches:
+                time_error = (
+                    abs(raw_times[raw_index] - terminal_sample_time)
+                    if np.isfinite(terminal_sample_time)
+                    else 0.0
+                )
+                matches.append(
+                    (time_error, -raw_iteration, int(raw_index), raw_data)
+                )
+
+        if not matches:
+            raise ValueError(
+                "the solution terminal safe state was not found in LearnedData.RawData"
+            )
+
+        _, _, raw_index, raw_data = min(matches, key=lambda match: match[:3])
+        raw_states = np.asarray(raw_data.x, dtype=float)
+        raw_controls = np.asarray(raw_data.u, dtype=float)
+        raw_times = np.asarray(raw_data.t, dtype=float).reshape(-1)
+
+        solution_start_time = float(Solution.t)
+        solution_control_times = (
+            solution_start_time
+            + self.dt * np.arange(solution_controls.shape[0], dtype=float)
+        )
+        solution_terminal_time = (
+            solution_start_time + self.dt * solution_controls.shape[0]
+        )
+        learned_suffix_times = (
+            solution_terminal_time
+            + raw_times[raw_index:]
+            - raw_times[raw_index]
+        )
+
+        backup = SimpleNamespace()
+        backup.time = np.concatenate(
+            (solution_control_times, learned_suffix_times)
+        )
+        backup.x = np.concatenate(
+            (solution_states, raw_states[raw_index + 1:]), axis=0
+        )
+        backup.u = np.concatenate(
+            (solution_controls, raw_controls[raw_index:]), axis=0
+        )
+        backup.cost1 = float(
+            getattr(
+                Solution,
+                "player1_cost",
+                getattr(raw_data, "p1_total_cost", np.nan),
+            )
+        )
+        backup.cost2 = float(
+            getattr(
+                Solution,
+                "player2_cost",
+                getattr(raw_data, "p2_total_cost", np.nan),
+            )
+        )
+
+        if not (backup.time.shape[0] == backup.x.shape[0] == backup.u.shape[0]):
+            raise RuntimeError(
+                "backup time, state, and control trajectories are misaligned"
+            )
+        backup.indx = 0
+        self.backup = backup
+    
+    def backup_controller(self, x):
+        """Return the safe stored control closest to the current state.
+
+        Only the unexecuted portion of the trajectory is searched.  This
+        prevents a self-intersecting backup trajectory from moving its index
+        backward and replaying controls that have already been applied.
+        """
+        if not hasattr(self, "backup"):
+            raise RuntimeError("backup controller has not been initialized")
+
+        state = np.asarray(x, dtype=float).reshape(-1)
+        states = np.asarray(self.backup.x, dtype=float)
+        controls = np.asarray(self.backup.u, dtype=float)
+        times = np.asarray(self.backup.time, dtype=float).reshape(-1)
+        if state.shape != (self.game.nx,):
+            raise ValueError(f"x must have shape ({self.game.nx},)")
+        if (
+            states.ndim != 2
+            or states.shape[1] != self.game.nx
+            or controls.ndim != 2
+            or controls.shape != (states.shape[0], self.game.nu)
+            or times.shape[0] != states.shape[0]
+            or states.shape[0] == 0
+        ):
+            raise RuntimeError("stored backup trajectory is invalid")
+
+        first_index = int(
+            np.clip(
+                getattr(self.backup, "indx", 0),
+                0,
+                states.shape[0] - 1,
+            )
+        )
+        errors = states[first_index:] - state
+        state_weight = np.asarray(
+            getattr(self, "proximity_Q", np.eye(self.game.nx)), dtype=float
+        )
+        if state_weight.shape != (self.game.nx, self.game.nx):
+            state_weight = np.eye(self.game.nx)
+        distances = np.einsum("ij,jk,ik->i", errors, state_weight, errors)
+        backup_index = first_index + int(np.argmin(distances))
+
+        self.backup.indx = backup_index
+        if hasattr(self, "Solution"):
+            self.Solution.success = False
+            self.Solution.used_backup_controller = True
+            self.Solution.backup_index = backup_index
+        return controls[backup_index].copy()

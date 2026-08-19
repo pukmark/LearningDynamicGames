@@ -81,16 +81,54 @@ class GameDynamics:
 
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [u1_sym[0]+u2_sym[0]-self.u_min_shared, self.u_max_shared-u1_sym[0]-u2_sym[0], u1_sym[1]+u2_sym[1]-self.u_min_shared, self.u_max_shared-u2_sym[1]-u1_sym[1]])
         if self.is_single_integrator:
+            x1_sym = x_sym[:self.nx1]
+            x2_sym = x_sym[self.nx1:self.nx1+self.nx2]
             v1_sym = u1_sym
             v2_sym = u2_sym
         else:
+            x1_sym = x_sym[:self.nx1]
+            x2_sym = x_sym[self.nx1:self.nx1+self.nx2]
             v1_sym = x_sym[2:4]
             v2_sym = x_sym[self.nx1+2:self.nx1+4]
+        
+        # Player Private Constranits:
+        if self.is_single_integrator:
+            self.f_private = ca.Function('f_private', [x1_sym, u1_sym], [u1_sym[0]-self.u_min, 
+                                                                     self.u_max-u1_sym[0], 
+                                                                     u1_sym[1]-self.u_min, 
+                                                                     self.u_max-u1_sym[1], 
+                                                                     x1_sym[0]-self.x_min, 
+                                                                     self.x_max-x1_sym[0], 
+                                                                     x1_sym[1]-self.y_min, 
+                                                                     self.y_max-x1_sym[1]])
+        else:
+            self.f_private = ca.Function('f_private', [x1_sym, u1_sym], [u1_sym[0]-self.u_min, 
+                                                                        self.u_max-u1_sym[0], 
+                                                                        u1_sym[1]-self.u_min, 
+                                                                        self.u_max-u1_sym[1], 
+                                                                        x1_sym[0]-self.x_min, 
+                                                                        self.x_max-x1_sym[0], 
+                                                                        x1_sym[1]-self.y_min, 
+                                                                        self.y_max-x1_sym[1],
+                                                                        v1_sym[0]-self.vx_min,
+                                                                        self.vx_max-v1_sym[0],
+                                                                        v1_sym[1]-self.vy_min,
+                                                                        self.vy_max-v1_sym[1]])
+        
         self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [1.5*self.vy_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
 
+        # Dynamics Function:
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
         # or [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y] for double-integrator mode.
+        k1 = self.dynamics(x1_sym, u1_sym)
+        k2 = self.dynamics(x1_sym + 0.5 * dt *k1, u1_sym)
+        k3 = self.dynamics(x1_sym + 0.5 * dt * k2, u1_sym)
+        k4 = self.dynamics(x1_sym + dt * k3, u1_sym)
+
+        self.xkp1 = x1_sym + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        self.dynamics_fun = ca.Function('fynamics_fun', [x1_sym, u1_sym], [self.xkp1])
+        
         
         return
 
@@ -153,7 +191,11 @@ class GameDynamics:
 
     def dynamics(self, x, u):
         """
-        Continuous-time dynamics.
+        Continuous-time dynamics for NumPy or CasADi vectors.
+
+        ``x`` and ``u`` may describe either one player or the full game. The
+        return value is a NumPy array for NumPy inputs and a CasADi column
+        vector when either input is a CasADi ``SX``, ``MX``, or ``DM`` value.
 
         Single integrator:
             State x = [p1x, p1y, p2x, p2y]
@@ -163,29 +205,61 @@ class GameDynamics:
             State x = [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y]
             Input u = [a1x, a1y, a2x, a2y]
         """
-        x = np.asarray(x, dtype=float)
-        u = np.asarray(u, dtype=float)
-        if x.shape != (self.nx,):
-            raise ValueError(f"x must have shape ({self.nx},)")
-        if u.shape != (self.nu,):
-            raise ValueError(f"u must have shape ({self.nu},)")
+        casadi_types = (ca.SX, ca.MX, ca.DM)
+        use_casadi = isinstance(x, casadi_types) or isinstance(u, casadi_types)
+
+        def prepare_vector(value, name):
+            if isinstance(value, casadi_types):
+                if not value.is_vector():
+                    raise ValueError(f"{name} must be a vector")
+                return ca.reshape(value, value.numel(), 1), value.numel()
+
+            value = np.asarray(value, dtype=float)
+            if value.ndim != 1:
+                raise ValueError(f"{name} must be a one-dimensional array")
+            if use_casadi:
+                return ca.DM(value), value.size
+            return value, value.size
+
+        x, x_size = prepare_vector(x, "x")
+        u, u_size = prepare_vector(u, "u")
+
+        if x_size == self.nx1:
+            expected_u_size = self.nu1
+            player_count = 1
+        elif x_size == self.nx:
+            expected_u_size = self.nu
+            player_count = 2
+        else:
+            raise ValueError(
+                f"x must contain one player ({self.nx1} elements) or "
+                f"the full game ({self.nx} elements)"
+            )
+        if u_size != expected_u_size:
+            raise ValueError(
+                f"u must have {expected_u_size} elements when x has "
+                f"{x_size} elements"
+            )
 
         if self.is_single_integrator:
-            return np.array([u[0], u[1], u[2], u[3]], dtype=float)
+            components = [u[index] for index in range(u_size)]
+        else:
+            components = []
+            for player in range(player_count):
+                x_offset = player * self.nx1
+                u_offset = player * self.nu1
+                components.extend(
+                    [
+                        x[x_offset + 2],
+                        x[x_offset + 3],
+                        u[u_offset],
+                        u[u_offset + 1],
+                    ]
+                )
 
-        return np.array(
-            [
-                x[2],
-                x[3],
-                u[0],
-                u[1],
-                x[6],
-                x[7],
-                u[2],
-                u[3],
-            ],
-            dtype=float,
-        )
+        if use_casadi:
+            return ca.vertcat(*components)
+        return np.asarray(components, dtype=float)
 
     def step(self, u):
         """

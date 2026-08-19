@@ -161,6 +161,137 @@ class LearnedPlayer2ActionTests(unittest.TestCase):
         np.testing.assert_allclose(learned_action, [2.5, 3.5])
 
 
+class BackupControllerTests(unittest.TestCase):
+    def test_update_splices_solution_to_matching_raw_safe_trajectory(self):
+        terminal_state = np.array([1.0, 0.0, 2.0, 0.0])
+        raw_data = SimpleNamespace(
+            t=[4.0, 5.0, 6.0, 7.0],
+            x=[
+                np.array([0.0, 0.0, 3.0, 0.0]),
+                terminal_state.copy(),
+                np.array([1.5, 0.0, 2.5, 0.0]),
+                np.array([2.0, 0.0, 3.0, 0.0]),
+            ],
+            u=[
+                np.array([9.0, 9.0, 9.0, 9.0]),
+                np.array([1.0, 0.0, 1.0, 0.0]),
+                np.array([1.0, 0.0, 1.0, 0.0]),
+                np.zeros(4),
+            ],
+            p1_total_cost=20.0,
+            p2_total_cost=30.0,
+        )
+        solver = DGSolver.__new__(DGSolver)
+        solver.dt = 0.5
+        solver.game = SimpleNamespace(nx=4, nu=4)
+        solver.LearnedData = SimpleNamespace(RawData=[raw_data])
+        solution = SimpleNamespace(
+            t=10.0,
+            x1=np.array([[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]]),
+            x2=np.array([[1.0, 0.0], [1.5, 0.0], [2.0, 0.0]]),
+            u1=np.array([[1.0, 0.0], [1.0, 0.0]]),
+            u2=np.array([[1.0, 0.0], [1.0, 0.0]]),
+            terminal_sample_state=terminal_state,
+            terminal_sample_time=5.0,
+            player1_cost=7.0,
+            player2_cost=8.0,
+        )
+
+        solver.backup_controller_update(solution)
+
+        self.assertEqual(solver.backup.x.shape, (5, 4))
+        self.assertEqual(solver.backup.u.shape, (5, 4))
+        np.testing.assert_allclose(solver.backup.time, [10.0, 10.5, 11.0, 12.0, 13.0])
+        np.testing.assert_allclose(solver.backup.x[2], terminal_state)
+        np.testing.assert_allclose(solver.backup.x[3:], raw_data.x[2:])
+        np.testing.assert_allclose(solver.backup.u[2:], raw_data.u[1:])
+        self.assertEqual(solver.backup.cost1, 7.0)
+        self.assertEqual(solver.backup.cost2, 8.0)
+
+    def test_update_rejects_terminal_state_missing_from_raw_data(self):
+        solver = DGSolver.__new__(DGSolver)
+        solver.dt = 1.0
+        solver.game = SimpleNamespace(nx=4, nu=4)
+        solver.LearnedData = SimpleNamespace(
+            RawData=[
+                SimpleNamespace(
+                    t=[0.0],
+                    x=[np.zeros(4)],
+                    u=[np.zeros(4)],
+                )
+            ]
+        )
+        solution = SimpleNamespace(
+            t=0.0,
+            x1=np.zeros((2, 2)),
+            x2=np.zeros((2, 2)),
+            u1=np.zeros((1, 2)),
+            u2=np.zeros((1, 2)),
+            terminal_sample_state=np.ones(4),
+        )
+
+        with self.assertRaisesRegex(ValueError, "not found"):
+            solver.backup_controller_update(solution)
+
+    def test_backup_controller_tracks_forward_without_rewinding(self):
+        solver = DGSolver.__new__(DGSolver)
+        solver.game = SimpleNamespace(nx=4, nu=4)
+        solver.proximity_Q = np.eye(4)
+        solver.Solution = SimpleNamespace(success=True)
+        solver.backup = SimpleNamespace(
+            time=np.array([0.0, 1.0, 2.0]),
+            x=np.array(
+                [
+                    [0.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 1.0, 0.0],
+                    [2.0, 0.0, 2.0, 0.0],
+                ]
+            ),
+            u=np.array(
+                [
+                    [1.0, 0.0, 1.0, 0.0],
+                    [2.0, 0.0, 2.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                ]
+            ),
+            indx=0,
+        )
+
+        control = solver.backup_controller(np.array([1.1, 0.0, 1.1, 0.0]))
+        np.testing.assert_allclose(control, [2.0, 0.0, 2.0, 0.0])
+        self.assertEqual(solver.backup.indx, 1)
+
+        # A later call cannot replay the already-consumed control at index 0.
+        control = solver.backup_controller(np.zeros(4))
+        np.testing.assert_allclose(control, [2.0, 0.0, 2.0, 0.0])
+        self.assertEqual(solver.backup.indx, 1)
+        self.assertTrue(solver.Solution.used_backup_controller)
+        self.assertFalse(solver.Solution.success)
+
+    def test_step_uses_backup_when_direct_solve_fails(self):
+        solver = DGSolver.__new__(DGSolver)
+        solver.constraint_mode = "convex_hull"
+        solver.game = SimpleNamespace(nx=4, nu=4)
+        solver.proximity_Q = np.eye(4)
+        solver.Solution = SimpleNamespace(success=True)
+        solver.backup = SimpleNamespace(
+            time=np.array([0.0]),
+            x=np.zeros((1, 4)),
+            u=np.array([[0.25, 0.0, -0.25, 0.0]]),
+            indx=0,
+        )
+
+        def failed_solve(*args, **kwargs):
+            solver.last_solve_success = False
+            return np.full(4, 99.0)
+
+        solver._step_once = failed_solve
+        control = solver.step(0.0, np.zeros(4))
+
+        np.testing.assert_allclose(control, [0.25, 0.0, -0.25, 0.0])
+        self.assertTrue(solver.Solution.used_backup_controller)
+
+
 class SimpleControllerTests(unittest.TestCase):
     def test_player2_controller_is_symmetric_and_bounded(self):
         game = GameDynamics(
