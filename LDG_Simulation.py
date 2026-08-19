@@ -70,7 +70,7 @@ if __name__ == '__main__':
         help="save the evolving figure as an MP4 or GIF (default: LDG_Simulation.mp4)",
     )
     parser.add_argument(
-        "--movie-fps", type=float, default=10.0,
+        "--movie-fps", type=float, default=5.0,
         help="movie frames per second (default: 10)",
     )
     parser.add_argument(
