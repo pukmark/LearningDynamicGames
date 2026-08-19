@@ -45,7 +45,7 @@ def solution_has_no_interaction(solution, tolerance=1e-8):
     return sigma.size == 0 or np.all(np.abs(sigma) <= tolerance)
 
 
-def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_tol = 1e-5):
+def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_tol = 1e-1):
     """Return the individually rational candidate with largest Nash product.
 
     Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
@@ -66,7 +66,7 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_to
     if not acceptable:
         return None
 
-    improvement_tolerance = 1e-5
+    improvement_tolerance = 1e-1
     improvements = np.asarray(
         [
             (
@@ -102,7 +102,7 @@ def filter_monotonic_cost_candidates(
     candidate_results,
     executed_costs,
     previous_iteration_costs,
-    tolerance=1e-5,
+    tolerance=1e-1,
 ):
     """Keep candidates that do not worsen either player's prior total cost."""
     executed = np.asarray(executed_costs, dtype=float).reshape(-1)
@@ -404,7 +404,7 @@ class DGSolver:
         self.verbose = verbose
         self.nms = True
         self.use_slack = False
-        self.cost_tol = 1e-5
+        self.cost_tol = 1e-1
         
         self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
         self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
@@ -837,7 +837,7 @@ class DGSolver:
                 cost_filter
                 & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
                 & (distance_to_terminal <= np.sqrt(2) * self.game.vx_max * self.N * self.dt)
-                & (sample_times > t + (self.N-3) * self.dt - 1e-5)
+                & (sample_times > t + (self.N-1) * self.dt - 1e-5)
                 
             )[0]
         else:
