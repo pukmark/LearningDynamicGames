@@ -183,6 +183,7 @@ class BackupControllerTests(unittest.TestCase):
         )
         solver = DGSolver.__new__(DGSolver)
         solver.dt = 0.5
+        solver.N = 2
         solver.game = SimpleNamespace(nx=4, nu=4)
         solver.LearnedData = SimpleNamespace(RawData=[raw_data])
         solution = SimpleNamespace(
@@ -211,6 +212,7 @@ class BackupControllerTests(unittest.TestCase):
     def test_update_rejects_terminal_state_missing_from_raw_data(self):
         solver = DGSolver.__new__(DGSolver)
         solver.dt = 1.0
+        solver.N = 1
         solver.game = SimpleNamespace(nx=4, nu=4)
         solver.LearnedData = SimpleNamespace(
             RawData=[
@@ -235,7 +237,9 @@ class BackupControllerTests(unittest.TestCase):
 
     def test_backup_controller_tracks_forward_without_rewinding(self):
         solver = DGSolver.__new__(DGSolver)
-        solver.game = SimpleNamespace(nx=4, nu=4)
+        solver.N = 2
+        solver.dt = 1.0
+        solver.game = SimpleNamespace(nx=4, nu=4, nx1=2, nu1=2)
         solver.proximity_Q = np.eye(4)
         solver.Solution = SimpleNamespace(success=True)
         solver.backup = SimpleNamespace(
@@ -260,6 +264,31 @@ class BackupControllerTests(unittest.TestCase):
         control = solver.backup_controller(np.array([1.1, 0.0, 1.1, 0.0]))
         np.testing.assert_allclose(control, [2.0, 0.0, 2.0, 0.0])
         self.assertEqual(solver.backup.indx, 1)
+        np.testing.assert_allclose(
+            solver.Solution.x1,
+            [[1.0, 0.0], [2.0, 0.0], [2.0, 0.0]],
+        )
+        np.testing.assert_allclose(
+            solver.Solution.x2,
+            [[1.0, 0.0], [2.0, 0.0], [2.0, 0.0]],
+        )
+        np.testing.assert_allclose(
+            solver.Solution.u1,
+            [[2.0, 0.0], [0.0, 0.0]],
+        )
+        np.testing.assert_allclose(
+            solver.Solution.u2,
+            [[2.0, 0.0], [0.0, 0.0]],
+        )
+        np.testing.assert_allclose(solver.Solution.x0, [1.1, 0.0, 1.1, 0.0])
+        self.assertEqual(solver.Solution.indx, 0)
+        self.assertEqual(solver.Solution.t, 1.0)
+        self.assertEqual(solver.Solution.status, "backup_controller")
+        self.assertTrue(solver.Solution.is_backup)
+        self.assertEqual(
+            solver.Solution.x1.shape[0],
+            solver.Solution.u1.shape[0] + 1,
+        )
 
         # A later call cannot replay the already-consumed control at index 0.
         control = solver.backup_controller(np.zeros(4))
@@ -271,7 +300,9 @@ class BackupControllerTests(unittest.TestCase):
     def test_step_uses_backup_when_direct_solve_fails(self):
         solver = DGSolver.__new__(DGSolver)
         solver.constraint_mode = "convex_hull"
-        solver.game = SimpleNamespace(nx=4, nu=4)
+        solver.N = 2
+        solver.dt = 1.0
+        solver.game = SimpleNamespace(nx=4, nu=4, nx1=2, nu1=2)
         solver.proximity_Q = np.eye(4)
         solver.Solution = SimpleNamespace(success=True)
         solver.backup = SimpleNamespace(

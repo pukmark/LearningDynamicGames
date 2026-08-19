@@ -9,6 +9,7 @@ import casadi as ca
 import os
 import pathlib
 import copy
+import pickle
 import shutil
 import atexit
 import multiprocessing as mp
@@ -154,6 +155,30 @@ def _initialize_terminal_worker():
 def _terminal_worker_pid():
     """Return the PID after the worker initializer has completed."""
     return os.getpid()
+
+
+def _casadi_pickle(value):
+    """Serialize a process payload while CasADi symbolic pickling is enabled."""
+    pickle_context = getattr(ca, "global_pickle_context", None)
+    if pickle_context is None:
+        raise RuntimeError(
+            "parallel symbolic solves require a CasADi version that provides "
+            "global_pickle_context"
+        )
+    with pickle_context():
+        return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _casadi_unpickle(payload):
+    """Deserialize a process payload while CasADi symbolic loading is enabled."""
+    unpickle_context = getattr(ca, "global_unpickle_context", None)
+    if unpickle_context is None:
+        raise RuntimeError(
+            "parallel symbolic solves require a CasADi version that provides "
+            "global_unpickle_context"
+        )
+    with unpickle_context():
+        return pickle.loads(payload)
 
 
 def _get_terminal_executor(max_workers):
@@ -308,6 +333,13 @@ def _solve_sampled_terminal_gamma_sequence(
             )
             break
     return results
+
+
+def _solve_sampled_terminal_gamma_sequence_serialized(payload):
+    """Run a sampled-terminal task using CasADi-safe byte serialization."""
+    arguments = _casadi_unpickle(payload)
+    results = _solve_sampled_terminal_gamma_sequence(*arguments)
+    return _casadi_pickle(results)
 
 class DGSolver:
     """Basic structure for a dynamic game solver."""
@@ -899,30 +931,35 @@ class DGSolver:
             worker_solver.solver = None
             worker_solver.is_built = False
             executor = _get_terminal_executor(self.max_workers)
-            futures = {
-                executor.submit(
-                    _solve_sampled_terminal_gamma_sequence,
-                    worker_solver,
-                    candidate_data,
-                    sample_index,
-                    sample_offset * len(gammas) + 1,
-                    sample_count,
-                    t,
-                    x0,
-                    gammas,
-                    u1_0,
-                    u2_0,
-                    a_set,
-                    proximity_factor,
-                ): sample_index
-                for sample_offset, (sample_index, candidate_data) in enumerate(
-                    candidate_data_by_index.items()
+            futures = {}
+            for sample_offset, (sample_index, candidate_data) in enumerate(
+                candidate_data_by_index.items()
+            ):
+                payload = _casadi_pickle(
+                    (
+                        worker_solver,
+                        candidate_data,
+                        sample_index,
+                        sample_offset * len(gammas) + 1,
+                        sample_count,
+                        t,
+                        x0,
+                        gammas,
+                        u1_0,
+                        u2_0,
+                        a_set,
+                        proximity_factor,
+                    )
                 )
-            }
+                future = executor.submit(
+                    _solve_sampled_terminal_gamma_sequence_serialized,
+                    payload,
+                )
+                futures[future] = sample_index
             for future in as_completed(futures):
                 submitted_index = futures[future]
                 try:
-                    results = future.result()
+                    results = _casadi_unpickle(future.result())
                 except Exception as exc:
                     if self.verbose:
                         print(
@@ -1579,8 +1616,11 @@ class DGSolver:
             raise ValueError("Solution.x1 and Solution.x2 must have equal-length trajectories")
         if u1.ndim != 2 or u2.ndim != 2 or u1.shape[0] != u2.shape[0]:
             raise ValueError("Solution.u1 and Solution.u2 must have equal-length trajectories")
-        if x1.shape[0] != u1.shape[0] + 1:
-            raise ValueError("the solution must contain one more state than control")
+        if x1.shape[0] != self.N + 1 or u1.shape[0] != self.N:
+            raise ValueError(
+                f"the solution must contain {self.N + 1} states and "
+                f"{self.N} controls"
+            )
 
         solution_states = np.concatenate((x1, x2), axis=1)
         solution_controls = np.concatenate((u1, u2), axis=1)
@@ -1738,7 +1778,44 @@ class DGSolver:
 
         self.backup.indx = backup_index
         if hasattr(self, "Solution"):
+            state_stop = min(backup_index + self.N + 1, states.shape[0])
+            control_stop = min(backup_index + self.N, controls.shape[0])
+            remaining_states = states[backup_index:state_stop].copy()
+            remaining_controls = controls[backup_index:control_stop].copy()
+
+            if remaining_states.shape[0] < self.N + 1:
+                state_padding = np.repeat(
+                    states[-1][None, :],
+                    self.N + 1 - remaining_states.shape[0],
+                    axis=0,
+                )
+                remaining_states = np.concatenate(
+                    (remaining_states, state_padding), axis=0
+                )
+            if remaining_controls.shape[0] < self.N:
+                control_padding = np.repeat(
+                    controls[-1][None, :],
+                    self.N - remaining_controls.shape[0],
+                    axis=0,
+                )
+                remaining_controls = np.concatenate(
+                    (remaining_controls, control_padding), axis=0
+                )
+
+            self.Solution.t = float(times[backup_index])
+            self.Solution.x0 = state.copy()
+            self.Solution.x1 = remaining_states[:, :self.game.nx1]
+            self.Solution.x2 = remaining_states[:, self.game.nx1:]
+            self.Solution.u1 = remaining_controls[:, :self.game.nu1]
+            self.Solution.u2 = remaining_controls[:, self.game.nu1:]
+            self.Solution.indx = 0
             self.Solution.success = False
+            self.Solution.status = "backup_controller"
+            self.Solution.is_backup = True
             self.Solution.used_backup_controller = True
             self.Solution.backup_index = backup_index
+            self.Solution.terminal_sample_state = remaining_states[-1].copy()
+            self.Solution.terminal_sample_time = float(
+                times[backup_index] + self.N * self.dt
+            )
         return controls[backup_index].copy()
