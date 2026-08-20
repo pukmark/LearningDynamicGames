@@ -66,7 +66,7 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_to
     if not acceptable:
         return None
 
-    improvement_tolerance = 1e-1
+    improvement_tolerance = 0.0
     improvements = np.asarray(
         [
             (
@@ -89,10 +89,10 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_to
     return max(
         acceptable,
         key=lambda result: (
-            max(0.0, baseline[0] - result[2])
-            * max(0.0, baseline[1] - result[3]),
-            max(0.0, baseline[0] - result[2])
-            + max(0.0, baseline[1] - result[3]),
+            max(0.0, baseline[0] - result[2] + 1e-12)
+            * max(0.0, baseline[1] - result[3] + 1e-12),
+            max(0.0, baseline[0] - result[2] + 1e-12),
+            + max(0.0, baseline[1] - result[3] + 1e-12),
             -result[2] - result[3],
         ),
     )
