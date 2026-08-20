@@ -44,6 +44,9 @@ arrival_tolerance = 0.01
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.75, 1.5, dynamics_type=dynamics_type)])
+x0 = np.array( player_state(-1.75, 1.5, dynamics_type=dynamics_type) + player_state(-0.5, -1.0, dynamics_type=dynamics_type))
+alpha1, alpha2 = 0.5, 0.5
+
 max_workers = max(1, int(os.cpu_count() * 0.4))
 # max_workers = 1
         
@@ -91,9 +94,6 @@ if __name__ == '__main__':
         tuple(args.disagreement_costs)
         if args.disagreement_costs is not None else disagreement_costs
     )
-    
-    x0 = np.array( player_state(-1.75, 1.5, dynamics_type=dynamics_type) + player_state(0.0, -1.0, dynamics_type=dynamics_type))
-    alpha1, alpha2 = 0.5, 0.5
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
     LearnedData = init_learned_data()

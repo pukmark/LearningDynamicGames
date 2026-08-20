@@ -413,7 +413,7 @@ class GameDynamics:
         """
         p2 = self.nx1
         if (
-            self.t < 1.0
+            self.t < 1.5
             and (
                 self.is_single_integrator
                 or (
@@ -423,7 +423,7 @@ class GameDynamics:
             )
         ):
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-            target[0] += 2.0
+            target[0] += 3.0
         else:
             target = np.asarray(self.x2f, dtype=float).reshape(-1)
         if target.shape != (self.nx2,):
