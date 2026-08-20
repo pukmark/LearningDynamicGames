@@ -423,7 +423,7 @@ class GameDynamics:
             )
         ):
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-            target[0] += 3.0
+            target[0] += 2.0
         else:
             target = np.asarray(self.x2f, dtype=float).reshape(-1)
         if target.shape != (self.nx2,):
