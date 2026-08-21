@@ -115,7 +115,7 @@ class GameDynamics:
                                                                         v1_sym[1]-self.vy_min,
                                                                         self.vy_max-v1_sym[1]])
         
-        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [1.5*self.vy_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
+        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [4.5*self.vy_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
 
         # Dynamics Function:
@@ -355,7 +355,7 @@ class GameDynamics:
         respects player 1's input bounds.
         """
         if (
-            self.t < 1.0
+            self.t < 1.5
             and (
                 self.is_single_integrator
                 or (
@@ -413,7 +413,7 @@ class GameDynamics:
         """
         p2 = self.nx1
         if (
-            self.t < 1.5
+            self.t < 1.3
             and (
                 self.is_single_integrator
                 or (
@@ -423,7 +423,7 @@ class GameDynamics:
             )
         ):
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-            target[0] += 2.0
+            target[0] += 1.5
         else:
             target = np.asarray(self.x2f, dtype=float).reshape(-1)
         if target.shape != (self.nx2,):
