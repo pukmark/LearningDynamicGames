@@ -454,18 +454,40 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         nash_product = float(getattr(solution, "nash_product", np.nan))
     except (TypeError, ValueError):
         nash_product = np.nan
-    if np.isfinite(bargaining_gamma) and np.isfinite(nash_product):
+    selection_method = getattr(
+        solution, "cooperative_selection", "nash_bargaining"
+    )
+    try:
+        cooperative_objective = float(
+            getattr(solution, "cooperative_objective", np.nan)
+        )
+    except (TypeError, ValueError):
+        cooperative_objective = np.nan
+    selection_metric = (
+        cooperative_objective
+        if selection_method == "weighted_sum"
+        else nash_product
+    )
+    if selection_method == "weighted_sum":
+        ax_bargaining.set_title("Cooperative weighted-cost selection")
+        ax_nash_product.set_ylabel("Weighted cost", color="C2")
+        lines["nash_product"].set_label("Weighted cost")
+    else:
+        ax_bargaining.set_title("Cooperative Nash bargaining")
+        ax_nash_product.set_ylabel("Nash product", color="C2")
+        lines["nash_product"].set_label(r"$\Delta_1\Delta_2$")
+    if np.isfinite(bargaining_gamma) and np.isfinite(selection_metric):
         agreement_time = float(getattr(solution, "t", game.t))
         if (
             state["bargaining_times"]
             and np.isclose(state["bargaining_times"][-1], agreement_time)
         ):
             state["bargaining_gammas"][-1] = float(bargaining_gamma)
-            state["nash_products"][-1] = float(nash_product)
+            state["nash_products"][-1] = float(selection_metric)
         else:
             state["bargaining_times"].append(agreement_time)
             state["bargaining_gammas"].append(float(bargaining_gamma))
-            state["nash_products"].append(float(nash_product))
+            state["nash_products"].append(float(selection_metric))
 
     lines["bargaining_gamma"].set_data(
         state["bargaining_times"], state["bargaining_gammas"]
@@ -496,7 +518,26 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     )
     terminal_index = getattr(solution, "terminal_sample_index", None)
     terminal_time = getattr(solution, "terminal_sample_time", np.nan)
-    if (
+    if selection_method == "weighted_sum" and (
+        np.isfinite(bargaining_gamma)
+        and np.isfinite(cooperative_objective)
+        and np.all(np.isfinite(costs))
+    ):
+        weights = np.asarray(
+            getattr(solution, "cooperative_cost_weights", []), dtype=float
+        ).reshape(-1)
+        weights_text = (
+            f"({weights[0]:.3g}, {weights[1]:.3g})"
+            if weights.shape == (2,) else "unknown"
+        )
+        state["bargaining_text"].set_text(
+            f"z*: sample {terminal_index}, safe t={terminal_time:.2f}\n"
+            f"gamma*={float(bargaining_gamma):.3f}   "
+            f"weighted cost={cooperative_objective:.3g}\n"
+            f"C=({costs[0]:.3g}, {costs[1]:.3g})\n"
+            f"weights={weights_text}"
+        )
+    elif (
         np.isfinite(bargaining_gamma)
         and np.isfinite(nash_product)
         and baseline.shape == (2,)
@@ -511,7 +552,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             f"Delta=({improvements[0]:.3g}, {improvements[1]:.3g})"
         )
     else:
-        state["bargaining_text"].set_text("No bargaining agreement yet")
+        state["bargaining_text"].set_text("No cooperative selection yet")
 
     candidate_terminal_states = np.asarray(
         getattr(solution, "candidate_terminal_states", []), dtype=float
@@ -722,8 +763,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         p1_velocity = x[:, 2:4]
         p2_velocity = x[:, p2_i + 2:p2_i + 4]
 
-        lines["p1_v"].set_data(t, np.sqrt(np.sum(p1_velocity**2, axis=1)))
-        lines["p2_v"].set_data(t, np.sqrt(np.sum(p2_velocity**2, axis=1)))
+        lines["p1_v"].set_data(t, np.linalg.norm(p1_velocity, axis=1))
+        lines["p2_v"].set_data(t, np.linalg.norm(p2_velocity, axis=1))
 
         if solution is not None and hasattr(solution, "x1") and hasattr(solution, "x2"):
             predicted_x1 = np.asarray(solution.x1, dtype=float)

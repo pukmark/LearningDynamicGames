@@ -7,6 +7,7 @@ from DGSolver import (
     DGSolver,
     _solve_sampled_terminal_gamma_sequence,
     filter_monotonic_cost_candidates,
+    select_convex_cost_result,
     select_nash_bargaining_result,
     solution_has_no_interaction,
 )
@@ -82,6 +83,41 @@ class NashBargainingTests(unittest.TestCase):
         selected = select_nash_bargaining_result(candidates, (10.0, 10.0))
         self.assertEqual(selected[:2], (1, 0.5))
 
+
+class ConvexCostSelectionTests(unittest.TestCase):
+    def test_selects_minimum_weighted_player_cost(self):
+        candidates = [
+            (0, 0.2, 1.0, 9.0),
+            (1, 0.5, 4.0, 4.0),
+            (2, 0.8, 8.0, 1.0),
+        ]
+
+        selected = select_convex_cost_result(candidates, (0.25, 0.75))
+
+        self.assertEqual(selected[:2], (2, 0.8))
+
+    def test_rejects_nonconvex_weights(self):
+        with self.assertRaisesRegex(ValueError, "sum to 1"):
+            select_convex_cost_result([(0, 0.5, 1.0, 2.0)], (1.0, 1.0))
+
+    def test_solver_rejects_unknown_selection_method(self):
+        game = GameDynamics(
+            0.1,
+            np.zeros(4),
+            np.zeros((1, 2)),
+            np.zeros((1, 2)),
+            dynamics_type=1,
+        )
+        with self.assertRaisesRegex(ValueError, "cooperative_selection"):
+            DGSolver(
+                game,
+                x1f=np.zeros((1, 2)),
+                x2f=np.zeros((1, 2)),
+                cooperative_selection="unknown",
+            )
+
+
+class NashBargainingFallbackTests(unittest.TestCase):
     def test_returns_none_when_agreement_set_is_empty(self):
         candidates = [(0, 0.5, 11.0, 3.0), (1, 0.6, 3.0, 11.0)]
         self.assertIsNone(

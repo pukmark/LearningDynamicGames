@@ -98,6 +98,34 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_to
     )
 
 
+def select_convex_cost_result(candidate_results, cost_weights=(0.5, 0.5)):
+    """Return the candidate minimizing a convex sum of the players' costs.
+
+    Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
+    ``cost_weights`` must contain two nonnegative values that sum to one.
+    """
+    weights = np.asarray(cost_weights, dtype=float).reshape(-1)
+    if (
+        weights.shape != (2,)
+        or not np.all(np.isfinite(weights))
+        or np.any(weights < 0.0)
+        or not np.isclose(np.sum(weights), 1.0)
+    ):
+        raise ValueError(
+            "cost_weights must be two finite nonnegative values that sum to 1"
+        )
+    if not candidate_results:
+        return None
+    return min(
+        candidate_results,
+        key=lambda result: (
+            weights[0] * result[2] + weights[1] * result[3],
+            result[2] + result[3],
+            result[2],
+        ),
+    )
+
+
 def filter_monotonic_cost_candidates(
     candidate_results,
     executed_costs,
@@ -358,6 +386,8 @@ class DGSolver:
                        constraint_mode="sampled_points",
                        cooperative=False,
                        bargaining_gammas=None,
+                       cooperative_selection="nash_bargaining",
+                       cooperative_cost_weights=(0.5, 0.5),
                        disagreement_costs=None,
                        sigma_zero_tolerance=1e-8):
         if horizon <= 0:
@@ -379,6 +409,25 @@ class DGSolver:
             )
         self.constraint_mode = constraint_mode
         self.cooperative = bool(cooperative)
+        valid_cooperative_selections = {"nash_bargaining", "weighted_sum"}
+        if cooperative_selection not in valid_cooperative_selections:
+            raise ValueError(
+                "cooperative_selection must be 'nash_bargaining' or 'weighted_sum'"
+            )
+        self.cooperative_selection = cooperative_selection
+        self.cooperative_cost_weights = np.asarray(
+            cooperative_cost_weights, dtype=float
+        ).reshape(-1)
+        if (
+            self.cooperative_cost_weights.shape != (2,)
+            or not np.all(np.isfinite(self.cooperative_cost_weights))
+            or np.any(self.cooperative_cost_weights < 0.0)
+            or not np.isclose(np.sum(self.cooperative_cost_weights), 1.0)
+        ):
+            raise ValueError(
+                "cooperative_cost_weights must be two finite nonnegative values "
+                "that sum to 1"
+            )
         if bargaining_gammas is None:
             bargaining_gammas = np.linspace(0.1, 0.9, 9)
         self.bargaining_gammas = np.asarray(bargaining_gammas, dtype=float).reshape(-1)
@@ -406,7 +455,7 @@ class DGSolver:
         self.use_slack = False
         self.cost_tol = 1e-1
         
-        self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
+        self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 5.0, 5.0, 5.0, 5.0])
         self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
         self.large_dx = 20 * self.small_dx
         self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
@@ -992,18 +1041,29 @@ class DGSolver:
 
         baseline = None
         if self.cooperative and candidate_results:
-            baseline = disagreement_costs if disagreement_costs is not None else self.disagreement_costs
-            if baseline is None:
-                # Conservative default when no policy-specific disagreement
-                # point is provided: the componentwise worst feasible outcome.
+            if self.cooperative_selection == "nash_bargaining":
                 baseline = (
-                    max(result[2] for result in candidate_results),
-                    max(result[3] for result in candidate_results),
+                    disagreement_costs
+                    if disagreement_costs is not None
+                    else self.disagreement_costs
                 )
-            baseline = np.asarray(baseline, dtype=float).reshape(-1)
-            if baseline.shape != (2,) or not np.all(np.isfinite(baseline)):
-                raise ValueError("disagreement_costs must be two finite costs (b1_t, b2_t)")
-            selected = select_nash_bargaining_result(candidate_results, baseline)
+                if baseline is None:
+                    # Conservative default when no policy-specific disagreement
+                    # point is provided: the componentwise worst feasible outcome.
+                    baseline = (
+                        max(result[2] for result in candidate_results),
+                        max(result[3] for result in candidate_results),
+                    )
+                baseline = np.asarray(baseline, dtype=float).reshape(-1)
+                if baseline.shape != (2,) or not np.all(np.isfinite(baseline)):
+                    raise ValueError(
+                        "disagreement_costs must be two finite costs (b1_t, b2_t)"
+                    )
+                selected = select_nash_bargaining_result(candidate_results, baseline)
+            else:
+                selected = select_convex_cost_result(
+                    candidate_results, self.cooperative_cost_weights
+                )
             candidate_results = [] if selected is None else [selected]
 
         for sample_index, gamma, cost1, cost2, candidate_solution, candidate_solver in candidate_results:
@@ -1026,13 +1086,22 @@ class DGSolver:
                             best_solution.player2_predicted_cost,
                         ]
                     )
-                if baseline is not None:
+                if self.cooperative:
                     best_solution.bargaining_gamma = gamma
+                    best_solution.cooperative_selection = self.cooperative_selection
+                if baseline is not None:
                     best_solution.disagreement_costs = baseline.copy()
                     best_solution.bargaining_improvements = np.maximum(
                         baseline - np.array([cost1, cost2]), 0.0
                     )
                     best_solution.nash_product = float(np.prod(best_solution.bargaining_improvements))
+                elif self.cooperative:
+                    best_solution.cooperative_cost_weights = (
+                        self.cooperative_cost_weights.copy()
+                    )
+                    best_solution.cooperative_objective = float(
+                        self.cooperative_cost_weights @ np.array([cost1, cost2])
+                    )
                 best_solution.terminal_workers = self.max_workers
                 if self.cooperative:
                     break

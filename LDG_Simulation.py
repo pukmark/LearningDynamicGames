@@ -31,11 +31,13 @@ tf = 10.0
 dynamics_type = 2  # 1: single integrator, 2: double integrator
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
-# state and the shared-constraint equilibrium weight by Nash bargaining. Its
-# joint control output is applied to both players.
+# state and the shared-constraint equilibrium weight. The selection can use
+# Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.05, 0.45, 0.5, 0.55, 0.95])
-# bargaining_gammas = np.array([0.5])
+bargaining_gammas = np.array([0.5])
+cooperative_selection = "weighted_sum" # "weighted_sum", "nash_bargaining"
+cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
 # the bootstrap use the previous completed totals minus costs executed so far.
 disagreement_costs = None
@@ -55,11 +57,22 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the learning dynamic-game simulation.")
     parser.add_argument(
         "--cooperative", action="store_true",
-        help="apply Solver1 to both players and select (safe state, gamma) by Nash bargaining",
+        help="apply Solver1 jointly to both players",
     )
     parser.add_argument(
         "--bargaining-gammas", nargs="+", type=float, default=None,
         help="candidate equilibrium weights in [0, 1] (default: 0.1 ... 0.9)",
+    )
+    parser.add_argument(
+        "--cooperative-selection",
+        choices=("nash_bargaining", "weighted_sum"),
+        default=cooperative_selection,
+        help="select cooperative candidates by Nash bargaining or weighted cost",
+    )
+    parser.add_argument(
+        "--cooperative-cost-weights", nargs=2, type=float, metavar=("W1", "W2"),
+        default=cooperative_cost_weights,
+        help="convex player-cost weights for weighted_sum; must be nonnegative and sum to 1",
     )
     parser.add_argument(
         "--disagreement-costs", nargs=2, type=float, metavar=("B1", "B2"),
@@ -94,6 +107,8 @@ if __name__ == '__main__':
         tuple(args.disagreement_costs)
         if args.disagreement_costs is not None else disagreement_costs
     )
+    selection_method = args.cooperative_selection
+    cost_weights = np.asarray(args.cooperative_cost_weights, dtype=float)
     
     Game = GameDynamics(dt, x0, x1f, x2f, L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations)
     LearnedData = init_learned_data()
@@ -120,6 +135,8 @@ if __name__ == '__main__':
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             cooperative=cooperative,
             bargaining_gammas=gamma_grid,
+            cooperative_selection=selection_method,
+            cooperative_cost_weights=cost_weights,
             disagreement_costs=baseline_costs,
         )        
         
@@ -182,6 +199,8 @@ if __name__ == '__main__':
                                     horizon=Solver1.N+dN,
                                     cooperative=cooperative,
                                     bargaining_gammas=gamma_grid,
+                                    cooperative_selection=selection_method,
+                                    cooperative_cost_weights=cost_weights,
                                     disagreement_costs=baseline_costs,
                                 )
                                 u1_N = Solver1_N.step(
