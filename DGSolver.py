@@ -469,8 +469,8 @@ class DGSolver:
         time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) <= self.proximity_minval, 0.0, 1.0)
         time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) <= self.proximity_minval, 0.0, 1.0)
         
-        self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target - 0.1*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*np.eye(self.game.nu2), u2)-time2_to_target)])
-        self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target - 0.1*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*np.eye(self.game.nu1), u1)-time1_to_target)])
+        self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target - 0.0*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*np.eye(self.game.nu2), u2)-time2_to_target)])
+        self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target - 0.0*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*np.eye(self.game.nu1), u1)-time1_to_target)])
 
         
         self.Solution = SimpleNamespace()

@@ -312,7 +312,7 @@ if __name__ == '__main__':
             print(f"Reduced alpha1 to {alpha1:.2f}")
 
         if iter > 0:
-            if LearnedData.RawData[-1].p1_total_cost == LearnedData.RawData[-2].p1_total_cost and LearnedData.RawData[-1].p2_total_cost == LearnedData.RawData[-2].p2_total_cost:
+            if LearnedData.RawData[-1].p1_total_cost >= LearnedData.RawData[-2].p1_total_cost-1e-3 and LearnedData.RawData[-1].p2_total_cost >= LearnedData.RawData[-2].p2_total_cost-1e-3:
                 break
         
         prev_p1_total_cost = LearnedData.RawData[iter].p1_total_cost
