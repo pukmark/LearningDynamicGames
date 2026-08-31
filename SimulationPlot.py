@@ -389,8 +389,17 @@ def plot_simulation_init(game):
     # ax_distance.legend(loc="best")
 
     lines["bargaining_gamma"], = ax_bargaining.plot(
-        [], [], "C4-o", markersize=3, linewidth=1.5, label=r"chosen $\gamma^*$"
+        [], [], "C4-o", markersize=3, linewidth=1.5, label=r"chosen $\alpha_1^*$"
     )
+    if game.n_players == 3:
+        lines["bargaining_gamma2"], = ax_bargaining.plot(
+            [], [], "C5-o", markersize=3, linewidth=1.5,
+            label=r"chosen $\alpha_2^*$",
+        )
+        lines["bargaining_gamma3"], = ax_bargaining.plot(
+            [], [], "C6-o", markersize=3, linewidth=1.5,
+            label=r"derived $\alpha_3^*$",
+        )
     lines["nash_product"], = ax_nash_product.plot(
         [], [], "C2--", linewidth=1.5, label=r"$\Delta_1\Delta_2$"
     )
@@ -432,6 +441,8 @@ def plot_simulation_init(game):
         "predicted_cost3": None,
         "bargaining_times": [],
         "bargaining_gammas": [],
+        "bargaining_gammas2": [],
+        "bargaining_gammas3": [],
         "nash_products": [],
         "movie_writer": None,
         "movie_path": None,
@@ -498,6 +509,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         state["iteration"] = game.iteration
         state["bargaining_times"].clear()
         state["bargaining_gammas"].clear()
+        state["bargaining_gammas2"].clear()
+        state["bargaining_gammas3"].clear()
         state["nash_products"].clear()
 
     lines["p1_state"].set_data(x[:, 0], x[:, 1])
@@ -530,10 +543,19 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     solution = getattr(solver1, "Solution", None)
     solver2_solution = getattr(solver2, "Solution", None)
 
-    try:
-        bargaining_gamma = float(getattr(solution, "bargaining_gamma", np.nan))
-    except (TypeError, ValueError):
-        bargaining_gamma = np.nan
+    gamma_value = np.asarray(
+        getattr(solution, "bargaining_gamma", np.nan), dtype=float
+    ).reshape(-1)
+    bargaining_gamma = float(gamma_value[0]) if gamma_value.size else np.nan
+    bargaining_gamma2 = (
+        float(gamma_value[1])
+        if game.n_players == 3 and gamma_value.size == 2 else np.nan
+    )
+    bargaining_gamma3 = (
+        1.0 - bargaining_gamma - bargaining_gamma2
+        if np.isfinite(bargaining_gamma) and np.isfinite(bargaining_gamma2)
+        else np.nan
+    )
     try:
         nash_product = float(getattr(solution, "nash_product", np.nan))
     except (TypeError, ValueError):
@@ -567,15 +589,28 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             and np.isclose(state["bargaining_times"][-1], agreement_time)
         ):
             state["bargaining_gammas"][-1] = float(bargaining_gamma)
+            if game.n_players == 3:
+                state["bargaining_gammas2"][-1] = bargaining_gamma2
+                state["bargaining_gammas3"][-1] = bargaining_gamma3
             state["nash_products"][-1] = float(selection_metric)
         else:
             state["bargaining_times"].append(agreement_time)
             state["bargaining_gammas"].append(float(bargaining_gamma))
+            if game.n_players == 3:
+                state["bargaining_gammas2"].append(bargaining_gamma2)
+                state["bargaining_gammas3"].append(bargaining_gamma3)
             state["nash_products"].append(float(selection_metric))
 
     lines["bargaining_gamma"].set_data(
         state["bargaining_times"], state["bargaining_gammas"]
     )
+    if game.n_players == 3:
+        lines["bargaining_gamma2"].set_data(
+            state["bargaining_times"], state["bargaining_gammas2"]
+        )
+        lines["bargaining_gamma3"].set_data(
+            state["bargaining_times"], state["bargaining_gammas3"]
+        )
     lines["nash_product"].set_data(
         state["bargaining_times"], state["nash_products"]
     )
@@ -604,6 +639,10 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     )
     terminal_index = getattr(solution, "terminal_sample_index", None)
     terminal_time = getattr(solution, "terminal_sample_time", np.nan)
+    gamma_text = (
+        f"alpha*=({bargaining_gamma:.3f}, {bargaining_gamma2:.3f}, {bargaining_gamma3:.3f})"
+        if game.n_players == 3 else f"gamma*={bargaining_gamma:.3f}"
+    )
     if selection_method == "weighted_sum" and (
         np.isfinite(bargaining_gamma)
         and np.isfinite(cooperative_objective)
@@ -618,7 +657,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         )
         state["bargaining_text"].set_text(
             f"z*: sample {terminal_index}, safe t={terminal_time:.2f}\n"
-            f"gamma*={float(bargaining_gamma):.3f}   "
+            f"{gamma_text}   "
             f"weighted cost={cooperative_objective:.3g}\n"
             f"C=({', '.join(f'{cost:.3g}' for cost in costs)})\n"
             f"weights={weights_text}"
@@ -632,7 +671,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ):
         state["bargaining_text"].set_text(
             f"z*: sample {terminal_index}, safe t={terminal_time:.2f}\n"
-            f"gamma*={float(bargaining_gamma):.3f}   Nash={float(nash_product):.3g}\n"
+            f"{gamma_text}   Nash={float(nash_product):.3g}\n"
             f"C=({', '.join(f'{cost:.3g}' for cost in costs)})\n"
             f"b=({', '.join(f'{value:.3g}' for value in baseline)})\n"
             f"Delta=({', '.join(f'{value:.3g}' for value in improvements)})"
@@ -969,11 +1008,21 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         ax_velocity.relim()
         ax_velocity.autoscale_view()
         
-    equilibrium_label = (
-        rf"$\gamma^*$={float(bargaining_gamma):.2f}"
-        if np.isfinite(bargaining_gamma)
-        else f"alpha1={solver1.alpha_vec[0,0]:.2f}, alpha2={solver2.alpha_vec[0,0]:.2f}"
-    )
+    if game.n_players == 3:
+        if np.isfinite(bargaining_gamma2):
+            equilibrium_label = (
+                f"alpha*=({bargaining_gamma:.2f}, {bargaining_gamma2:.2f}, "
+                f"{bargaining_gamma3:.2f})"
+            )
+        else:
+            a1, a2 = solver1.alpha_vec[0]
+            equilibrium_label = f"alpha=({a1:.2f}, {a2:.2f}, {1-a1-a2:.2f})"
+    else:
+        equilibrium_label = (
+            rf"$\gamma^*$={float(bargaining_gamma):.2f}"
+            if np.isfinite(bargaining_gamma)
+            else f"alpha1={solver1.alpha_vec[0,0]:.2f}, alpha2={solver2.alpha_vec[0,0]:.2f}"
+        )
     ax_xy.set_title(
         f"XY trajectory - Iteration: {game.iteration}, {equilibrium_label}, "
         f"time: {game.t:.2f}"

@@ -440,17 +440,43 @@ class DGSolver:
                 "that sum to 1"
             )
         if bargaining_gammas is None:
-            bargaining_gammas = np.linspace(0.1, 0.9, 9)
-        self.bargaining_gammas = np.asarray(bargaining_gammas, dtype=float).reshape(-1)
-        if self.bargaining_gammas.size == 0 or np.any(
-            (self.bargaining_gammas < 0.0) | (self.bargaining_gammas > 1.0)
-        ):
-            raise ValueError("bargaining_gammas must contain values in [0, 1]")
+            bargaining_gammas = (
+                np.array([[0.5, 0.25]]) if self.game.n_players == 3
+                else np.linspace(0.1, 0.9, 9)
+            )
+        bargaining_gammas = np.asarray(bargaining_gammas, dtype=float)
+        if self.game.n_players == 3:
+            self.bargaining_gammas = bargaining_gammas.reshape(-1, 2)
+            if (
+                self.bargaining_gammas.shape[0] == 0
+                or np.any(self.bargaining_gammas < 0.0)
+                or np.any(np.sum(self.bargaining_gammas, axis=1) > 1.0 + 1e-12)
+            ):
+                raise ValueError(
+                    "three-player bargaining weights must satisfy alpha1 >= 0, "
+                    "alpha2 >= 0, and alpha1 + alpha2 <= 1"
+                )
+        else:
+            self.bargaining_gammas = bargaining_gammas.reshape(-1)
+            if self.bargaining_gammas.size == 0 or np.any(
+                (self.bargaining_gammas < 0.0) | (self.bargaining_gammas > 1.0)
+            ):
+                raise ValueError("bargaining_gammas must contain values in [0, 1]")
         self.disagreement_costs = disagreement_costs
         self.sigma_zero_tolerance = float(sigma_zero_tolerance)
         if self.sigma_zero_tolerance < 0.0:
             raise ValueError("sigma_zero_tolerance must be nonnegative")
-        self.alpha_vec = alpha * np.ones((self.N+1,1))
+        alpha = np.asarray(alpha, dtype=float).reshape(-1)
+        if self.game.n_players == 3:
+            if alpha.size == 1:
+                alpha = np.array([alpha[0], (1.0 - alpha[0]) / 2.0])
+            if alpha.shape != (2,) or np.any(alpha < 0.0) or np.sum(alpha) > 1.0 + 1e-12:
+                raise ValueError("alpha must contain valid (alpha1, alpha2) weights")
+            self.alpha_vec = np.tile(alpha, (self.N + 1, 1))
+        else:
+            if alpha.shape != (1,) or not 0.0 <= alpha[0] <= 1.0:
+                raise ValueError("alpha must be in [0, 1]")
+            self.alpha_vec = alpha[0] * np.ones((self.N + 1, 1))
         self.max_workers = max_workers
         self.options = options.copy() if options is not None else {}
         self.solver = None
@@ -865,7 +891,7 @@ class DGSolver:
               for p in range(player_count)]
         x0s = [ca.SX.sym(f'x{p + 1}_0', 1, self.game.nx1)
                for p in range(player_count)]
-        alpha_vec = ca.SX.sym('alpha_vec', self.N + 1)
+        alpha_vec = ca.SX.sym('alpha_vec', self.N + 1, 2)
 
         sample_count = (
             terminal_safe_set.state.shape[0]
@@ -979,7 +1005,7 @@ class DGSolver:
             lambda_vec.append(lam)
             lagrangians.append(Lp)
 
-        shared, shared_alpha = [], []
+        shared, shared_stages = [], []
         for k in range(self.N + 1):
             controls = ([us[p][k, :] for p in range(player_count)]
                         if k < self.N else
@@ -990,17 +1016,15 @@ class DGSolver:
             for value in values:
                 if is_symbolic_expr(value):
                     shared.append(value)
-                    shared_alpha.append(alpha_vec[k])
+                    shared_stages.append(k)
         sg_vec = ca.vertcat(*shared)
-        alpha_k = ca.vertcat(*shared_alpha)
+        alpha1_k = ca.vertcat(*[alpha_vec[k, 0] for k in shared_stages])
+        alpha2_k = ca.vertcat(*[alpha_vec[k, 1] for k in shared_stages])
+        alpha3_k = 1.0 - alpha1_k - alpha2_k
         sigma = ca.SX.sym('sigma', sg_vec.shape[0])
-        # Alpha retains its original meaning for P1; the complement is shared
-        # equally by the other players, so the two-player formula is unchanged.
-        lagrangians[0] -= ca.dot(alpha_k * sigma, sg_vec)
-        for player in range(1, player_count):
-            lagrangians[player] -= ca.dot(
-                ((1 - alpha_k) / (player_count - 1)) * sigma, sg_vec
-            )
+        alpha_weights = (alpha1_k, alpha2_k, alpha3_k)
+        for player, alpha_weight in enumerate(alpha_weights):
+            lagrangians[player] -= ca.dot(alpha_weight * sigma, sg_vec)
 
         mu_all = ca.vertcat(*mu_vec)
         lambda_all = ca.vertcat(*lambda_vec)
@@ -1137,13 +1161,19 @@ class DGSolver:
             candidate_data_by_index[int(sample_index)] = candidate_data
 
         candidate_results = []
-        gammas = (
-            np.asarray([forced_alpha], dtype=float)
-            if forced_alpha is not None
-            else self.bargaining_gammas if self.cooperative
-            else [None]
-        )
-        gammas = [None if gamma is None else float(gamma) for gamma in gammas]
+        if forced_alpha is not None:
+            forced = np.asarray(forced_alpha, dtype=float).reshape(-1)
+            gammas = [forced if self.game.n_players == 3 else float(forced[0])]
+        elif self.cooperative:
+            gammas = list(self.bargaining_gammas)
+        else:
+            gammas = [None]
+        gammas = [
+            (None if gamma is None else
+             np.asarray(gamma, dtype=float).reshape(2)
+             if self.game.n_players == 3 else float(gamma))
+            for gamma in gammas
+        ]
         sample_count = len(candidate_data_by_index) * len(gammas)
         if self.max_workers == 1:
             sample_number = 0
@@ -1927,9 +1957,15 @@ class DGSolver:
 
     def update_alpha_vec(self, new_alpha):
         """Update the alpha vector used for shared constraints."""
-        if new_alpha < 0.0 or new_alpha > 1.0:
-            raise ValueError("new_alpha must be in [0, 1]")
-        self.alpha_vec = new_alpha * np.ones_like(self.alpha_vec)
+        new_alpha = np.asarray(new_alpha, dtype=float).reshape(-1)
+        if self.game.n_players == 3:
+            if new_alpha.shape != (2,) or np.any(new_alpha < 0.0) or np.sum(new_alpha) > 1.0 + 1e-12:
+                raise ValueError("new_alpha must be a valid (alpha1, alpha2) pair")
+            self.alpha_vec[:] = new_alpha
+        else:
+            if new_alpha.shape != (1,) or not 0.0 <= new_alpha[0] <= 1.0:
+                raise ValueError("new_alpha must be in [0, 1]")
+            self.alpha_vec[:] = new_alpha[0]
 
     def affine_lstsq_weights(self, Sx, x0, reg=1e-10):
         """

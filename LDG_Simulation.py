@@ -34,8 +34,9 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # state and the shared-constraint equilibrium weight. The selection can use
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
-bargaining_gammas = np.array([0.05, 0.45, 0.5, 0.55, 0.95])
 bargaining_gammas = np.array([0.5])
+bargaining_gamma1 = np.array([0.333])
+bargaining_gamma2 = np.array([0.333])
 cooperative_selection = "weighted_sum" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
@@ -52,7 +53,7 @@ x0_players = (
     player_state(-0.5, -2.0, dynamics_type=dynamics_type),
     player_state(1.75, 1.5, dynamics_type=dynamics_type),
 )
-alpha1, alpha2 = 0.5, 0.5
+alpha1, alpha2 = 0.5, 0.25
 
 max_workers = max(1, int(os.cpu_count() * 0.4))
 max_workers = 1
@@ -70,7 +71,15 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--bargaining-gammas", nargs="+", type=float, default=None,
-        help="candidate equilibrium weights in [0, 1] (default: 0.1 ... 0.9)",
+        help="candidate alpha1 values for a two-player game",
+    )
+    parser.add_argument(
+        "--bargaining-gamma1", nargs="+", type=float, default=None,
+        help="candidate alpha1 values for a three-player game",
+    )
+    parser.add_argument(
+        "--bargaining-gamma2", nargs="+", type=float, default=None,
+        help="candidate alpha2 values paired with --bargaining-gamma1",
     )
     parser.add_argument(
         "--cooperative-selection",
@@ -108,10 +117,27 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
     cooperative = cooperative_mode or args.cooperative
-    gamma_grid = (
-        np.asarray(args.bargaining_gammas, dtype=float)
-        if args.bargaining_gammas is not None else bargaining_gammas
-    )
+    if args.players == 3:
+        gamma1_grid = np.asarray(
+            args.bargaining_gamma1
+            if args.bargaining_gamma1 is not None else bargaining_gamma1,
+            dtype=float,
+        )
+        gamma2_grid = np.asarray(
+            args.bargaining_gamma2
+            if args.bargaining_gamma2 is not None else bargaining_gamma2,
+            dtype=float,
+        )
+        if gamma1_grid.shape != gamma2_grid.shape:
+            raise ValueError("bargaining_gamma1 and bargaining_gamma2 must have equal lengths")
+        gamma_grid = np.column_stack((gamma1_grid, gamma2_grid))
+        if np.any(gamma_grid < 0.0) or np.any(np.sum(gamma_grid, axis=1) > 1.0 + 1e-12):
+            raise ValueError("every bargaining pair must satisfy gamma1 + gamma2 <= 1")
+    else:
+        gamma_grid = (
+            np.asarray(args.bargaining_gammas, dtype=float)
+            if args.bargaining_gammas is not None else bargaining_gammas
+        )
     baseline_costs = (
         tuple(args.disagreement_costs)
         if args.disagreement_costs is not None else disagreement_costs
@@ -139,7 +165,8 @@ if __name__ == '__main__':
     
     Solver2 = DGSolver(
         Game, x1f=x1f, x2f=x2f,
-        x3f=x3f if player_count == 3 else None, alpha=alpha2,
+        x3f=x3f if player_count == 3 else None,
+        alpha=np.array([alpha1, alpha2]) if player_count == 3 else 1.0 - alpha1,
     )
     plot_simulation_init(Game)
     movie_path = None
@@ -157,7 +184,7 @@ if __name__ == '__main__':
         Solver1 = DGSolver(
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
-            alpha=alpha1, max_workers=max_workers,
+            alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
             horizon=10,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             cooperative=cooperative,
@@ -228,7 +255,8 @@ if __name__ == '__main__':
                                 Solver1_N = DGSolver(
                                     Game, x1f=x1f, x2f=x2f,
                                     x3f=x3f if player_count == 3 else None,
-                                    LearnedData=LearnedData, alpha=alpha1,
+                                    LearnedData=LearnedData,
+                                    alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
                                     max_workers=max_workers,
                                     prev_best_cost=(
                                         prev_p1_total_cost if iter > 0 else np.inf
@@ -293,9 +321,14 @@ if __name__ == '__main__':
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             plot_simulation(Game, Solver1, Solver2, LearnedData)
             
-            selected_gamma = getattr(Solver1.Solution, "bargaining_gamma", alpha1)
+            default_gamma = (
+                np.array([alpha1, alpha2]) if player_count == 3 else alpha1
+            )
+            selected_gamma = getattr(
+                Solver1.Solution, "bargaining_gamma", default_gamma
+            )
             if selected_gamma is None:
-                selected_gamma = alpha1
+                selected_gamma = default_gamma
             record_learned_state(LearnedData, Game, iter, selected_gamma)
             if GameFlag != Game.STEP_OK:
                 print("Infeasible Step - Stopping Iteration")

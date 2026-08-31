@@ -232,7 +232,10 @@ def rebuild_analyzed_data(
 def record_learned_state(learned_data, game, iteration, alpha, feasible=True):
     if len(learned_data.RawData) < iteration + 1:
         learned_data.RawData.append(SimpleNamespace())
-        learned_data.RawData[iteration].alpha = float(alpha)
+        alpha_value = np.asarray(alpha, dtype=float).reshape(-1)
+        learned_data.RawData[iteration].alpha = (
+            float(alpha_value[0]) if alpha_value.size == 1 else alpha_value.copy()
+        )
         learned_data.RawData[iteration].t = []
         learned_data.RawData[iteration].x = []
         learned_data.RawData[iteration].u = []

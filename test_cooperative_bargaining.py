@@ -420,11 +420,27 @@ class ThreePlayerGameTests(unittest.TestCase):
         game = GameDynamics(
             0.1, self.x0, *self.targets, dynamics_type=2
         )
-        solver = DGSolver(game, *self.targets, horizon=2, cooperative=True)
+        solver = DGSolver(
+            game, *self.targets, horizon=2, cooperative=True,
+            alpha=(0.5, 0.25),
+            bargaining_gammas=((0.2, 0.3), (0.5, 0.25)),
+        )
         backend = solver.build_solver()
         self.assertEqual(backend.params["nx"], 12)
         self.assertEqual(len(backend.Z_len), 6)
         self.assertEqual(solver.cooperative_cost_weights.shape, (3,))
+        np.testing.assert_allclose(solver.alpha_vec[0], [0.5, 0.25])
+        np.testing.assert_allclose(
+            1.0 - np.sum(solver.alpha_vec, axis=1), 0.25
+        )
+
+    def test_solver_rejects_alpha_pair_outside_simplex(self):
+        game = GameDynamics(0.1, self.x0, *self.targets, dynamics_type=2)
+        with self.assertRaisesRegex(ValueError, r"alpha1 \+ alpha2 <= 1"):
+            DGSolver(
+                game, *self.targets, cooperative=True,
+                bargaining_gammas=((0.7, 0.4),),
+            )
 
 
 if __name__ == "__main__":
