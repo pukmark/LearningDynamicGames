@@ -1913,6 +1913,18 @@ class DGSolver:
             restart_limit=100)
         return z, status == PATHSolver.MCP_Solved, info.residual, status
         """)
+        
+        sample_progress = (f", sample={sample_number}/{sample_count}"
+            if sample_number is not None and sample_count is not None else "")        
+        if not success:
+            print(
+                f"Solver Not Converged: residual={residual:2.2}, "
+                f"status={status.__name__}{sample_progress}"
+            )
+        else:
+            if self.verbose:
+                print(f"Solver Converged: residual={residual:2.2}, status={status.__name__}{sample_progress}")
+        
         z = np.asarray(z, dtype=float).reshape(-1)
         self.last_solve_success = bool(success)
 
