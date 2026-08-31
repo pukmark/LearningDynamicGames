@@ -56,7 +56,7 @@ x0_players = (
 alpha1, alpha2 = 0.5, 0.25
 
 max_workers = max(1, int(os.cpu_count() * 0.4))
-max_workers = 1
+# max_workers = 1
         
 
 if __name__ == '__main__':
