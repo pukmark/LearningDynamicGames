@@ -49,6 +49,7 @@ def init_analyzed_data():
     analyzed_data.u2 = []
     analyzed_data.Cost2Go = []
     analyzed_data.Cost2Go2 = []
+    analyzed_data.Cost2Go3 = []
     analyzed_data.n_data = 0
     return analyzed_data
 
@@ -98,11 +99,11 @@ def is_shared_constraint_active(game, state, control, tolerance=None):
     if tolerance is None:
         tolerance = game.eps
 
-    residuals = game.f_shared(
-        np.asarray(state, dtype=float),
-        np.asarray(control[:game.nu1], dtype=float),
-        np.asarray(control[game.nu1:], dtype=float),
-    )
+    player_controls = [
+        np.asarray(control[p * game.nu1:(p + 1) * game.nu1], dtype=float)
+        for p in range(game.n_players)
+    ]
+    residuals = game.f_shared(np.asarray(state, dtype=float), *player_controls)
     if not isinstance(residuals, tuple):
         residuals = (residuals,)
 
@@ -140,8 +141,10 @@ def remaining_cost_budget(previous_total_costs, executed_costs):
     """
     previous = np.asarray(previous_total_costs, dtype=float).reshape(-1)
     executed = np.asarray(executed_costs, dtype=float).reshape(-1)
-    if previous.shape != (2,) or executed.shape != (2,):
-        raise ValueError("previous_total_costs and executed_costs must each contain two costs")
+    if previous.shape != executed.shape or previous.size not in (2, 3):
+        raise ValueError(
+            "previous_total_costs and executed_costs must contain the same two or three costs"
+        )
     if not (np.all(np.isfinite(previous)) and np.all(np.isfinite(executed))):
         raise ValueError("cost budgets require finite previous and executed costs")
     return previous - executed
@@ -161,22 +164,54 @@ def rebuild_analyzed_data(
 
     for raw_data in learned_data.RawData[current_iteration + 1:stop_iteration:-1]:
         states = raw_data.x
-        p1_stage_costs = [(solver.l1(state[:game.nx1], u[:game.nu1], state[game.nx1:], u[game.nu1:])) for state, u in zip(states, raw_data.u)]
+        stage_costs = getattr(solver, "stage_costs", None)
+        if stage_costs is None:
+            p1_stage_costs = [
+                solver.l1(state[:game.nx1], u[:game.nu1],
+                          state[game.nx1:], u[game.nu1:])
+                for state, u in zip(states, raw_data.u)
+            ]
+        else:
+            p1_stage_costs = [
+                solver.stage_costs[0](state[:game.nx1], u[:game.nu1])
+                for state, u in zip(states, raw_data.u)
+            ]
         p1_costs_to_go = np.cumsum(p1_stage_costs[::-1])[::-1]
         raw_data.p1_total_cost = float(p1_costs_to_go[0])
-        p2_stage_costs = [
-            float(solver.l2(state[game.nx1:], u[game.nu1:], state[:game.nx1], u[:game.nu1:]))
-            for state, u in zip(states, raw_data.u)
-        ]
+        if stage_costs is None:
+            p2_stage_costs = [
+                float(solver.l2(state[game.nx1:], u[game.nu1:],
+                                state[:game.nx1], u[:game.nu1]))
+                for state, u in zip(states, raw_data.u)
+            ]
+        else:
+            p2_stage_costs = [
+                float(solver.stage_costs[1](
+                    state[game.nx1:2 * game.nx1],
+                    u[game.nu1:2 * game.nu1]))
+                for state, u in zip(states, raw_data.u)
+            ]
         p2_costs_to_go = np.cumsum(p2_stage_costs[::-1])[::-1]
         raw_data.p2_total_cost = float(p2_costs_to_go[0])
+        if getattr(game, "n_players", 2) == 3:
+            p3_stage_costs = [
+                float(solver.l3(
+                    state[2 * game.nx1:3 * game.nx1],
+                    u[2 * game.nu1:3 * game.nu1],
+                )) for state, u in zip(states, raw_data.u)
+            ]
+            p3_costs_to_go = np.cumsum(p3_stage_costs[::-1])[::-1]
+            raw_data.p3_total_cost = float(p3_costs_to_go[0])
+        else:
+            p3_costs_to_go = [np.nan] * len(states)
 
-        for t, state, u, p1_cost_to_go, p2_cost_to_go in zip(
+        for t, state, u, p1_cost_to_go, p2_cost_to_go, p3_cost_to_go in zip(
             raw_data.t,
             states,
             raw_data.u,
             p1_costs_to_go,
             p2_costs_to_go,
+            p3_costs_to_go,
         ):
             if any( ca.bilin(solver.proximity_Q, saved_state - state)  <= 1e-12 for saved_state in analyzed_data.state ): continue
 
@@ -186,6 +221,8 @@ def rebuild_analyzed_data(
             # analyzed_data.c.append(np.array([cx_min, cx_max, cy_min, cy_max]))
             analyzed_data.Cost2Go.append(p1_cost_to_go)
             analyzed_data.Cost2Go2.append(p2_cost_to_go)
+            if getattr(game, "n_players", 2) == 3:
+                analyzed_data.Cost2Go3.append(p3_cost_to_go)
             analyzed_data.u2.append(u[2:4])
 
     analyzed_data.n_data = len(analyzed_data.state)
@@ -216,6 +253,10 @@ def append_terminal_learned_state(learned_data, game, iteration):
     """Append a zero-cost target sample one time step after the simulation."""
     target1_state = np.asarray(game.x1f, dtype=float).reshape(-1)
     target2_state = np.asarray(game.x2f, dtype=float).reshape(-1)
+    target3_state = (
+        np.asarray(game.x3f, dtype=float).reshape(-1)
+        if game.n_players == 3 else None
+    )
     if target1_state.shape != (game.nx1,):
         raise ValueError(
             f"x1f must contain one player state with shape ({game.nx1},)"
@@ -227,5 +268,10 @@ def append_terminal_learned_state(learned_data, game, iteration):
 
     raw_data = learned_data.RawData[iteration]
     raw_data.t.append(float(game.t + game.dt))
-    raw_data.x.append(np.concatenate((target1_state, target2_state)))
+    targets = [target1_state, target2_state]
+    if target3_state is not None:
+        if target3_state.shape != (game.nx1,):
+            raise ValueError(f"x3f must have shape ({game.nx1},)")
+        targets.append(target3_state)
+    raw_data.x.append(np.concatenate(targets))
     raw_data.u.append(np.zeros(game.nu, dtype=float))

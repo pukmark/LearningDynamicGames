@@ -372,7 +372,7 @@ def _solve_sampled_terminal_gamma_sequence_serialized(payload):
 class DGSolver:
     """Basic structure for a dynamic game solver."""
 
-    def __init__(self, game: GameDynamics, x1f, x2f, 
+    def __init__(self, game: GameDynamics, x1f, x2f, x3f=None,
                        dt=0.1, horizon=10, 
                        alpha=0.5,
                        R1 = 0.05,
@@ -387,7 +387,7 @@ class DGSolver:
                        cooperative=False,
                        bargaining_gammas=None,
                        cooperative_selection="nash_bargaining",
-                       cooperative_cost_weights=(0.5, 0.5),
+                       cooperative_cost_weights=None,
                        disagreement_costs=None,
                        sigma_zero_tolerance=1e-8):
         if horizon <= 0:
@@ -396,6 +396,13 @@ class DGSolver:
         self.game = game
         self.x1f = x1f
         self.x2f = x2f
+        self.x3f = x3f
+        self.targets = [
+            np.asarray(target, dtype=float).reshape(-1)
+            for target in (x1f, x2f, x3f) if target is not None
+        ]
+        if len(self.targets) != game.n_players:
+            raise ValueError("one target is required for every player")
         self.N = int(horizon)
         self.dt = float(dt)
         if LearnedData is None or LearnedData.AnalyzedData.n_data == 0:
@@ -415,17 +422,21 @@ class DGSolver:
                 "cooperative_selection must be 'nash_bargaining' or 'weighted_sum'"
             )
         self.cooperative_selection = cooperative_selection
+        if cooperative_cost_weights is None:
+            cooperative_cost_weights = np.full(
+                self.game.n_players, 1.0 / self.game.n_players
+            )
         self.cooperative_cost_weights = np.asarray(
             cooperative_cost_weights, dtype=float
         ).reshape(-1)
         if (
-            self.cooperative_cost_weights.shape != (2,)
+            self.cooperative_cost_weights.shape != (self.game.n_players,)
             or not np.all(np.isfinite(self.cooperative_cost_weights))
             or np.any(self.cooperative_cost_weights < 0.0)
             or not np.isclose(np.sum(self.cooperative_cost_weights), 1.0)
         ):
             raise ValueError(
-                "cooperative_cost_weights must be two finite nonnegative values "
+                "cooperative_cost_weights must contain one finite nonnegative value per player "
                 "that sum to 1"
             )
         if bargaining_gammas is None:
@@ -455,8 +466,14 @@ class DGSolver:
         self.use_slack = False
         self.cost_tol = 1e-1
         
-        self.proximity_Q = 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0]) if self.game.is_single_integrator else 1/self.game.nx*np.diag([1.0, 1.0, 1.0, 1.0, 5.0, 5.0, 5.0, 5.0])
-        self.small_dx = np.array([1e-3, 1e-3, 1e-3, 1e-3]) if self.game.is_single_integrator else np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3])
+        per_player_proximity = ([1.0, 1.0] if self.game.is_single_integrator
+                                else [1.0, 1.0, 5.0, 5.0])
+        self.proximity_Q = (1 / self.game.nx) * np.diag(
+            per_player_proximity * self.game.n_players
+        )
+        per_player_dx = ([1e-3, 1e-3] if self.game.is_single_integrator
+                         else [1e-2, 1e-2, 1e-3, 1e-3])
+        self.small_dx = np.asarray(per_player_dx * self.game.n_players)
         self.large_dx = 20 * self.small_dx
         self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
         self.proximity_maxval = np.array(ca.bilin(self.proximity_Q, self.large_dx)).flatten()[0]
@@ -471,6 +488,28 @@ class DGSolver:
         
         self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target - 0.0*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*np.eye(self.game.nu2), u2)-time2_to_target)])
         self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target - 0.0*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*np.eye(self.game.nu1), u1)-time1_to_target)])
+
+        self.stage_costs = []
+        for player, target in enumerate(self.targets):
+            xp = ca.SX.sym(f'cost_x{player + 1}', self.game.nx1)
+            up = ca.SX.sym(f'cost_u{player + 1}', self.game.nu1)
+            time_to_target = ca.if_else(
+                ca.bilin(self.Qk, xp - target) <= self.proximity_minval,
+                0.0, 1.0,
+            )
+            self.stage_costs.append(ca.Function(
+                f'player_{player + 1}_stage_cost', [xp, up],
+                [ca.bilin(self.Qk, xp - target)
+                 + ca.bilin((self.R1 if player != 1 else self.R2)
+                            * np.eye(self.game.nu1), up)
+                 + time_to_target],
+            ))
+        if self.game.n_players == 3:
+            x3 = ca.SX.sym('x3', self.game.nx1)
+            u3 = ca.SX.sym('u3', self.game.nu1)
+            self.l3 = ca.Function(
+                'l3', [x3, u3], [self.stage_costs[2](x3, u3)]
+            )
 
         
         self.Solution = SimpleNamespace()
@@ -497,6 +536,9 @@ class DGSolver:
         This is a placeholder for constructing optimization variables,
         constraints, costs, and the numerical backend.
         """
+        if self.game.n_players == 3:
+            return self._build_three_player_solver(Terminal_Safe_Set)
+
         # In cooperative mode both controls are chosen by Solver1.  A player-2
         # action stored with the learned safe set must therefore never pin the
         # first action of the new trajectory.
@@ -814,6 +856,181 @@ class DGSolver:
         self.is_built = True
         return self.solver
 
+    def _build_three_player_solver(self, terminal_safe_set=None):
+        """Build the same KKT/MCP formulation with a third player block."""
+        player_count = self.game.n_players
+        xs = [ca.SX.sym(f'x{p + 1}', self.N + 1, self.game.nx1)
+              for p in range(player_count)]
+        us = [ca.SX.sym(f'u{p + 1}', self.N, self.game.nu1)
+              for p in range(player_count)]
+        x0s = [ca.SX.sym(f'x{p + 1}_0', 1, self.game.nx1)
+               for p in range(player_count)]
+        alpha_vec = ca.SX.sym('alpha_vec', self.N + 1)
+
+        sample_count = (
+            terminal_safe_set.state.shape[0]
+            if terminal_safe_set is not None else 0
+        )
+        ai_xf = ca.SX.sym('ai_xf', sample_count) if sample_count > 1 else []
+        slacks = [[] for _ in range(player_count)]
+        if self.use_slack and sample_count:
+            slacks = [ca.SX.sym(f'x{p + 1}f_slack', self.game.nx1, 1)
+                      for p in range(player_count)]
+
+        h_vec, mu_vec, p_vec, lambda_vec = [], [], [], []
+        lagrangians, player_z, player_z_lengths = [], [], []
+        A, B = self._discrete_player_dynamics(self.game.nx1)
+        self.A_players = [A] * player_count
+        self.B_players = [B] * player_count
+
+        for player in range(player_count):
+            Lp = sum(
+                self.stage_costs[player](xs[player][k, :], us[player][k, :])
+                for k in range(self.N)
+            )
+            cost_field = 'Cost2Go' if player == 0 else f'Cost2Go{player + 1}'
+            if terminal_safe_set is not None and hasattr(terminal_safe_set, cost_field):
+                terminal_cost = np.asarray(
+                    getattr(terminal_safe_set, cost_field), dtype=float
+                ).reshape(-1)
+                if terminal_cost.size > 1:
+                    Lp += ca.mtimes(terminal_cost.reshape(1, -1), ai_xf)
+                elif terminal_cost.size == 1:
+                    Lp += float(terminal_cost[0])
+            else:
+                Lp += self.stage_costs[player](
+                    xs[player][self.N, :], ca.DM.zeros(self.game.nu1)
+                )
+
+            h = []
+            for k in range(self.N + 1):
+                if k == 0:
+                    h.append(xs[player][k, :].T - x0s[player].T)
+                else:
+                    h.append(xs[player][k, :].T - A @ xs[player][k - 1, :].T
+                             - B @ us[player][k - 1, :].T)
+            if terminal_safe_set is not None:
+                start = player * self.game.nx1
+                terminal_states = terminal_safe_set.state.T[
+                    start:start + self.game.nx1, :
+                ]
+                if sample_count > 1:
+                    if player == 0:
+                        h.append(1.0 - ca.sum1(ai_xf))
+                    h.append(ca.mtimes(terminal_states, ai_xf)
+                             - xs[player][self.N, :].T)
+                elif self.use_slack:
+                    h.append(terminal_states - xs[player][self.N, :].T
+                             + slacks[player])
+                else:
+                    h.append(terminal_states - xs[player][self.N, :].T)
+            hp = ca.vertcat(*h)
+            mu = ca.SX.sym(f'mu_{player + 1}', hp.shape[0])
+            Lp += ca.dot(mu, hp)
+
+            private = []
+            for k in range(self.N + 1):
+                xp = xs[player][k, :]
+                private.extend([
+                    xp[0] - self.game.x_min, self.game.x_max - xp[0],
+                    xp[1] - self.game.y_min, self.game.y_max - xp[1],
+                ])
+                if not self.game.is_single_integrator:
+                    private.extend([
+                        xp[2] - self.game.vx_min, self.game.vx_max - xp[2],
+                        xp[3] - self.game.vy_min, self.game.vy_max - xp[3],
+                    ])
+                if k < self.N:
+                    up = us[player][k, :]
+                    private.extend([
+                        up[0] - self.game.u_min, self.game.u_max - up[0],
+                        up[1] - self.game.u_min, self.game.u_max - up[1],
+                    ])
+            if self.use_slack and terminal_safe_set is not None:
+                private.extend([1e-8 - slacks[player] ** 2])
+            if player == 0 and sample_count > 1:
+                private.extend([1.0 - ai_xf, ai_xf])
+            pp = ca.vertcat(*private)
+            lam = ca.SX.sym(f'lambda_{player + 1}', pp.shape[0])
+            Lp -= ca.dot(lam, pp)
+
+            x_flat = ca.vec(xs[player])
+            u_flat = ca.vec(us[player])
+            z_components = [x_flat, u_flat]
+            ai_length = 0
+            if player == 0 and sample_count > 1:
+                z_components.append(ca.vec(ai_xf))
+                ai_length = int(ai_xf.shape[0])
+            slack_length = 0
+            if self.use_slack and sample_count:
+                z_components.append(ca.vec(slacks[player]))
+                slack_length = int(ca.vertcat(slacks[player][:]).shape[0])
+            zp = ca.vertcat(*z_components)
+            player_z.append(zp)
+            player_z_lengths.append([
+                x_flat.shape[0],
+                u_flat.shape[0],
+                ai_length,
+                slack_length,
+            ])
+            h_vec.append(hp)
+            mu_vec.append(mu)
+            p_vec.append(pp)
+            lambda_vec.append(lam)
+            lagrangians.append(Lp)
+
+        shared, shared_alpha = [], []
+        for k in range(self.N + 1):
+            controls = ([us[p][k, :] for p in range(player_count)]
+                        if k < self.N else
+                        [ca.DM.zeros(self.game.nu1) for _ in range(player_count)])
+            values = self.game.f_shared(ca.horzcat(*[x[k, :] for x in xs]), *controls)
+            if not isinstance(values, tuple):
+                values = (values,)
+            for value in values:
+                if is_symbolic_expr(value):
+                    shared.append(value)
+                    shared_alpha.append(alpha_vec[k])
+        sg_vec = ca.vertcat(*shared)
+        alpha_k = ca.vertcat(*shared_alpha)
+        sigma = ca.SX.sym('sigma', sg_vec.shape[0])
+        # Alpha retains its original meaning for P1; the complement is shared
+        # equally by the other players, so the two-player formula is unchanged.
+        lagrangians[0] -= ca.dot(alpha_k * sigma, sg_vec)
+        for player in range(1, player_count):
+            lagrangians[player] -= ca.dot(
+                ((1 - alpha_k) / (player_count - 1)) * sigma, sg_vec
+            )
+
+        mu_all = ca.vertcat(*mu_vec)
+        lambda_all = ca.vertcat(*lambda_vec)
+        z_parts = [*player_z, mu_all, lambda_all, sigma]
+        Z = ca.vertcat(*z_parts)
+        Z_len = [*player_z_lengths, mu_all.shape[0],
+                 lambda_all.shape[0], sigma.shape[0]]
+        stationarity = [
+            ca.jacobian(lagrangians[p], player_z[p]).T
+            for p in range(player_count)
+        ]
+        F_expr = ca.vertcat(*stationarity, *h_vec, *p_vec, sg_vec)
+        J_expr = ca.jacobian(F_expr, Z)
+        function_args = [Z, *x0s, alpha_vec]
+
+        self.solver = SimpleNamespace()
+        self.solver.params = {
+            'nx': self.game.nx, 'nu': self.game.nu, 'horizon': self.N,
+            'dynamics_type': self.game.dynamics_type, 'options': self.options,
+            'lagrangians': lagrangians,
+        }
+        self.solver.Z = Z
+        self.solver.Z_len = Z_len
+        self.solver.F = ca.Function('F3', function_args, [F_expr])
+        self.solver.J = ca.Function('J3', function_args, [J_expr])
+        self.solver.n_l_inf = sum(sum(lengths) for lengths in player_z_lengths) + int(mu_all.shape[0])
+        self.solver.n_u_inf = self.solver.n_l_inf + int(lambda_all.shape[0]) + int(sigma.shape[0])
+        self.is_built = True
+        return self.solver
+
     def _discrete_player_dynamics(self, nx):
         if self.game.is_single_integrator:
             return np.eye(nx), self.dt * np.eye(nx)
@@ -832,6 +1049,7 @@ class DGSolver:
         return A, B
 
     def step(self, t, x0, current_cost1=0.0, current_cost2=0.0,
+             current_cost3=0.0,
              forced_alpha=None, u1_0=None, u2_0=None,
              last_attempted_solution=False, use_all_terminal_points=False,
              disagreement_costs=None, previous_iteration_costs=None):
@@ -839,6 +1057,7 @@ class DGSolver:
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
                 t, x0, current_cost1=current_cost1, current_cost2=current_cost2,
+                current_cost3=current_cost3,
                 forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0,
                 last_attempted_solution=last_attempted_solution,
                 use_all_terminal_points=use_all_terminal_points,
@@ -859,6 +1078,7 @@ class DGSolver:
 
     def _step_over_sampled_terminal_states(
         self, t, x0, current_cost1=0.0, current_cost2=0.0,
+        current_cost3=0.0,
         forced_alpha=None, u1_0=None, u2_0=None,
         last_attempted_solution=False, use_all_terminal_points=False,
         disagreement_costs=None, previous_iteration_costs=None,
@@ -903,7 +1123,7 @@ class DGSolver:
         for sample_index in candidate_indices:
             candidate_data = copy.deepcopy(self.LearnedData)
             candidate = candidate_data.AnalyzedData
-            fields = ("t", "state", "Cost2Go", "Cost2Go2")
+            fields = ("t", "state", "Cost2Go", "Cost2Go2", "Cost2Go3")
             if not self.cooperative:
                 fields += ("u2",)
             for field in fields:
@@ -1033,15 +1253,64 @@ class DGSolver:
             monotonic_limits = np.asarray(
                 previous_iteration_costs, dtype=float
             ).reshape(-1)
-            candidate_results = filter_monotonic_cost_candidates(
-                candidate_results,
-                (current_cost1, current_cost2),
-                monotonic_limits,
-            )
+            if self.game.n_players == 2:
+                candidate_results = filter_monotonic_cost_candidates(
+                    candidate_results,
+                    (current_cost1, current_cost2),
+                    monotonic_limits,
+                )
 
         baseline = None
         if self.cooperative and candidate_results:
-            if self.cooperative_selection == "nash_bargaining":
+            if self.game.n_players == 3:
+                for result in candidate_results:
+                    result[4].player3_cost = self._player3_cost(
+                        result[4], candidate_data_by_index[int(result[0])]
+                    )
+                if monotonic_limits is not None:
+                    executed = np.array([current_cost1, current_cost2, current_cost3])
+                    if monotonic_limits.shape != (3,):
+                        raise ValueError("previous_iteration_costs must contain three costs")
+                    candidate_results = [
+                        result for result in candidate_results
+                        if np.all(executed + np.array([
+                            result[2], result[3], result[4].player3_cost
+                        ]) <= monotonic_limits + self.cost_tol)
+                    ]
+                    if not candidate_results:
+                        selected = None
+                        baseline = None
+                        # Continue through the common rejection path.
+                if not candidate_results:
+                    selected = None
+                elif self.cooperative_selection == "nash_bargaining":
+                    baseline = disagreement_costs if disagreement_costs is not None else self.disagreement_costs
+                    if baseline is None:
+                        baseline = np.max([
+                            [r[2], r[3], r[4].player3_cost]
+                            for r in candidate_results
+                        ], axis=0)
+                    baseline = np.asarray(baseline, dtype=float).reshape(-1)
+                    if baseline.shape != (3,) or not np.all(np.isfinite(baseline)):
+                        raise ValueError("disagreement_costs must contain three finite costs")
+                    acceptable = [
+                        r for r in candidate_results
+                        if np.all(np.array([r[2], r[3], r[4].player3_cost]) <= baseline + self.cost_tol)
+                    ]
+                    selected = max(
+                        acceptable,
+                        key=lambda r: np.prod(np.maximum(
+                            baseline - np.array([r[2], r[3], r[4].player3_cost]), 0.0
+                        )),
+                    ) if acceptable else None
+                elif candidate_results:
+                    selected = min(
+                        candidate_results,
+                        key=lambda r: self.cooperative_cost_weights @ np.array(
+                            [r[2], r[3], r[4].player3_cost]
+                        ),
+                    )
+            elif self.cooperative_selection == "nash_bargaining":
                 baseline = (
                     disagreement_costs
                     if disagreement_costs is not None
@@ -1078,29 +1347,45 @@ class DGSolver:
                 best_solution.player2_cost = cost2
                 best_solution.player1_predicted_cost = current_cost1 + cost1
                 best_solution.player2_predicted_cost = current_cost2 + cost2
+                if self.game.n_players == 3:
+                    cost3 = self._player3_cost(
+                        candidate_solution,
+                        candidate_data_by_index[int(sample_index)],
+                    )
+                    best_solution.player3_cost = cost3
+                    best_solution.player3_predicted_cost = cost3
                 if monotonic_limits is not None:
                     best_solution.previous_iteration_costs = monotonic_limits.copy()
-                    best_solution.monotonic_cost_margins = monotonic_limits - np.array(
-                        [
-                            best_solution.player1_predicted_cost,
-                            best_solution.player2_predicted_cost,
-                        ]
+                    predicted_costs = [
+                        best_solution.player1_predicted_cost,
+                        best_solution.player2_predicted_cost,
+                    ]
+                    if self.game.n_players == 3:
+                        predicted_costs.append(current_cost3 + best_solution.player3_cost)
+                    best_solution.monotonic_cost_margins = (
+                        monotonic_limits - np.array(predicted_costs)
                     )
                 if self.cooperative:
                     best_solution.bargaining_gamma = gamma
                     best_solution.cooperative_selection = self.cooperative_selection
                 if baseline is not None:
                     best_solution.disagreement_costs = baseline.copy()
+                    bargaining_costs = [cost1, cost2]
+                    if self.game.n_players == 3:
+                        bargaining_costs.append(best_solution.player3_cost)
                     best_solution.bargaining_improvements = np.maximum(
-                        baseline - np.array([cost1, cost2]), 0.0
+                        baseline - np.array(bargaining_costs), 0.0
                     )
                     best_solution.nash_product = float(np.prod(best_solution.bargaining_improvements))
                 elif self.cooperative:
                     best_solution.cooperative_cost_weights = (
                         self.cooperative_cost_weights.copy()
                     )
+                    selected_costs = [cost1, cost2]
+                    if self.game.n_players == 3:
+                        selected_costs.append(best_solution.player3_cost)
                     best_solution.cooperative_objective = float(
-                        self.cooperative_cost_weights @ np.array([cost1, cost2])
+                        self.cooperative_cost_weights @ np.array(selected_costs)
                     )
                 best_solution.terminal_workers = self.max_workers
                 if self.cooperative:
@@ -1118,15 +1403,16 @@ class DGSolver:
             self.Solution.candidate_terminal_states = candidate_terminal_states.copy()
             if hasattr(self, "backup"):
                 return self.backup_controller(x0)
-            if hasattr(self.Solution, "u1") and hasattr(self.Solution, "u2"):
+            if all(hasattr(self.Solution, f"u{p + 1}") for p in range(self.game.n_players)):
                 t_vec = np.arange(self.N) * self.dt+self.Solution.t
                 indx = np.argmin(np.abs(t_vec - t))
                 self.Solution.indx = max(self.Solution.indx+1, indx)
                 if self.Solution.indx >= self.N:
                     return np.zeros(self.game.nu)
-                return np.concatenate(
-                    (self.Solution.u1[self.Solution.indx], self.Solution.u2[self.Solution.indx])
-                )
+                return np.concatenate([
+                    getattr(self.Solution, f"u{p + 1}")[self.Solution.indx]
+                    for p in range(self.game.n_players)
+                ])
             return np.zeros(self.game.nu)
 
         best_solution.candidate_indices = candidate_indices.copy()
@@ -1139,7 +1425,10 @@ class DGSolver:
         self.last_solve_success = True
         
         self.backup_controller_update(self.Solution)
-        return np.concatenate((best_solution.u1[0], best_solution.u2[0]))
+        return np.concatenate([
+            getattr(best_solution, f"u{p + 1}")[0]
+            for p in range(self.game.n_players)
+        ])
 
     def _player1_cost(self, solution, learned_data):
         """Evaluate the primal player-1 objective used to rank terminal samples."""
@@ -1172,6 +1461,23 @@ class DGSolver:
                 cost += float(cost_to_go @ weights)
         return cost
 
+    def _player3_cost(self, solution, learned_data):
+        """Evaluate player 3's primal cost for a terminal candidate."""
+        cost = sum(
+            float(self.stage_costs[2](solution.x3[k], solution.u3[k]))
+            for k in range(self.N)
+        )
+        terminal_costs = np.asarray(
+            getattr(learned_data.AnalyzedData, "Cost2Go3", []), dtype=float
+        ).reshape(-1)
+        if terminal_costs.size:
+            weights = (
+                np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1)
+                if solution.ai_xf_vec.shape[0] > 1 else np.ones(1)
+            )
+            cost += float(terminal_costs @ weights)
+        return cost
+
     def _step_once(
         self,
         t,
@@ -1197,6 +1503,14 @@ class DGSolver:
         Returns:
             Tuple of (first control, success flag, residual, solver status).
         """
+        if self.game.n_players == 3:
+            return self._step_once_three_player(
+                t, x0, forced_alpha=forced_alpha,
+                terminal_learned_data=terminal_learned_data,
+                terminal_solver=terminal_solver,
+                precomputed_a_set=precomputed_a_set,
+                sample_number=sample_number, sample_count=sample_count,
+            )
         
         if precomputed_a_set is not None:
             a_set, proximity_factor = precomputed_a_set
@@ -1231,6 +1545,10 @@ class DGSolver:
                 if hasattr(LearnedData1.AnalyzedData, "Cost2Go2"):
                     LearnedData1.AnalyzedData.Cost2Go2 = np.array(
                         LearnedData1.AnalyzedData.Cost2Go2
+                    )[future]
+                if hasattr(LearnedData1.AnalyzedData, "Cost2Go3"):
+                    LearnedData1.AnalyzedData.Cost2Go3 = np.array(
+                        LearnedData1.AnalyzedData.Cost2Go3
                     )[future]
                 LearnedData1.AnalyzedData.n_data = LearnedData1.AnalyzedData.t.shape[0]
             else:
@@ -1466,6 +1784,147 @@ class DGSolver:
 
         return u
 
+    def _step_once_three_player(
+        self, t, x0, forced_alpha=None, terminal_learned_data=None,
+        terminal_solver=None, precomputed_a_set=None,
+        sample_number=None, sample_count=None,
+    ):
+        """Solve and unpack the three-player MCP using the standard backend."""
+        if precomputed_a_set is not None:
+            a_set, proximity_factor = precomputed_a_set
+        else:
+            a_set, proximity_factor = self.calc_a_set(x0)
+        alpha_vec = self.alpha_vec.copy()
+        if forced_alpha is not None:
+            alpha_vec[:] = forced_alpha
+        elif self.LearnedData is not None:
+            alpha_vec[0] = np.clip(1.0 - proximity_factor, 0.1, 1.0)
+
+        terminal = None
+        if terminal_learned_data is not None:
+            terminal = terminal_learned_data.AnalyzedData
+        elif self.LearnedData is not None:
+            terminal = self.LearnedData.AnalyzedData
+        if terminal_solver is not None:
+            self.Solver = terminal_solver
+        elif not self.is_built or terminal is not None:
+            self.Solver = self.build_solver(Terminal_Safe_Set=terminal)
+
+        _ensure_julia()
+        x0 = np.asarray(x0, dtype=float)
+        if x0.shape != (self.game.nx,):
+            raise ValueError(f"x0 must have shape ({self.game.nx},)")
+        x0s = [x0[p * self.game.nx1:(p + 1) * self.game.nx1].reshape(1, -1)
+                for p in range(self.game.n_players)]
+
+        initial_parts = []
+        trajectories = []
+        controls = []
+        for player, lengths in enumerate(self.Solver.Z_len[:self.game.n_players]):
+            x_len, u_len, ai_len, slack_len = lengths
+            sign = -1.0 if player == 0 else 1.0
+            up = np.full((self.N, self.game.nu1), sign * self.game.u_max * 0.01)
+            xp = np.zeros((self.N + 1, self.game.nx1))
+            xp[0] = x0s[player]
+            A, B = self.A_players[player], self.B_players[player]
+            for k in range(self.N):
+                xp[k + 1] = A @ xp[k] + B @ up[k]
+            trajectories.append(xp)
+            controls.append(up)
+            initial_parts.extend([
+                xp.reshape(x_len, order='F'), up.reshape(u_len, order='F'),
+                np.zeros(ai_len), np.zeros(slack_len),
+            ])
+        mu_len, lambda_len, sigma_len = self.Solver.Z_len[-3:]
+        z0 = np.concatenate([*initial_parts, np.zeros(mu_len),
+                             np.zeros(lambda_len), np.zeros(sigma_len)])
+
+        Main.z0 = z0
+        Main.ub = np.inf * np.ones(self.Solver.n_u_inf)
+        Main.lb = np.concatenate((
+            -np.inf * np.ones(self.Solver.n_l_inf),
+            np.zeros(self.Solver.n_u_inf - self.Solver.n_l_inf),
+        ))
+        Main.nnz = self.Solver.J.nnz_out(0)
+        function_args = [*x0s, alpha_vec]
+        Main.F_py = lambda z: np.array(self.Solver.F(z, *function_args)).squeeze()
+        Main.J_py = lambda z: np.array(self.Solver.J(z, *function_args))
+        Main.tol = self.p_tol
+        Main.F = jl.eval("""
+        function F(n::Cint, x::Vector{Cdouble}, f::Vector{Cdouble})
+            f .= F_py(x); return Cint(0)
+        end
+        return(F)
+        """)
+        Main.J = jl.eval("""
+        function J(n::Cint, nnz::Cint, x::Vector{Cdouble}, col::Vector{Cint},
+                   len::Vector{Cint}, row::Vector{Cint}, data::Vector{Cdouble})
+            j = J_py(x); i = 1
+            for c in 1:n
+                col[c], len[c] = i, 0
+                for r in 1:n
+                    if !iszero(j[r,c])
+                        row[i], data[i] = r, j[r,c]; len[c] += 1; i += 1
+                    end
+                end
+            end
+            return Cint(0)
+        end
+        return(J)
+        """)
+        output = 'yes' if self.verbose else 'no'
+        nms = 'yes' if self.nms else 'no'
+        z, success, residual, status = jl.eval(f"""
+        PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
+        status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
+            nnz=nnz, output="{output}", convergence_tolerance=tol,
+            nms="{nms}", crash_nbchange_limit=50, major_iteration_limit=500,
+            minor_iteration_limit=10000, cumulative_iteration_limit=100000,
+            restart_limit=100)
+        return z, status == PATHSolver.MCP_Solved, info.residual, status
+        """)
+        z = np.asarray(z, dtype=float).reshape(-1)
+        self.last_solve_success = bool(success)
+
+        offset = 0
+        solved_x, solved_u, slacks = [], [], []
+        ai_xf_vec = np.zeros((0, 1))
+        for player, lengths in enumerate(self.Solver.Z_len[:self.game.n_players]):
+            x_len, u_len, ai_len, slack_len = lengths
+            solved_x.append(z[offset:offset + x_len].reshape(
+                self.N + 1, self.game.nx1, order='F'))
+            offset += x_len
+            solved_u.append(z[offset:offset + u_len].reshape(
+                self.N, self.game.nu1, order='F'))
+            offset += u_len
+            if ai_len:
+                ai_xf_vec = z[offset:offset + ai_len].reshape(-1, 1)
+            offset += ai_len
+            slacks.append(z[offset:offset + slack_len].reshape(-1, 1))
+            offset += slack_len
+        offset += mu_len + lambda_len
+        sigma = z[offset:offset + sigma_len]
+
+        if success:
+            self.Solution = SimpleNamespace(
+                success=True, t=t, z=z, residual=float(residual),
+                status=status.__name__, ai_xf_vec=ai_xf_vec, sigma=sigma,
+                a_set=a_set, x0=x0, indx=0,
+            )
+            for player in range(self.game.n_players):
+                setattr(self.Solution, f'x{player + 1}', solved_x[player])
+                setattr(self.Solution, f'u{player + 1}', solved_u[player])
+                setattr(self.Solution, f'x{player + 1}f_slack', slacks[player])
+        elif hasattr(self.Solution, 'indx'):
+            self.Solution.success = False
+        if not all(hasattr(self.Solution, f'u{p + 1}')
+                   for p in range(self.game.n_players)):
+            return np.zeros(self.game.nu)
+        return np.concatenate([
+            getattr(self.Solution, f'u{p + 1}')[self.Solution.indx]
+            for p in range(self.game.n_players)
+        ])
+
     def update_alpha_vec(self, new_alpha):
         """Update the alpha vector used for shared constraints."""
         if new_alpha < 0.0 or new_alpha > 1.0:
@@ -1667,7 +2126,12 @@ class DGSolver:
         if self.LearnedData is None or not self.LearnedData.RawData:
             raise ValueError("cannot update backup without learned raw data")
 
-        required_fields = ("x1", "x2", "u1", "u2", "t")
+        player_count = getattr(self.game, "n_players", 2)
+        required_fields = tuple(
+            [f"x{p + 1}" for p in range(player_count)]
+            + [f"u{p + 1}" for p in range(player_count)]
+            + ["t"]
+        )
         missing_fields = [
             field for field in required_fields if not hasattr(Solution, field)
         ]
@@ -1677,22 +2141,24 @@ class DGSolver:
                 + ", ".join(missing_fields)
             )
 
-        x1 = np.asarray(Solution.x1, dtype=float)
-        x2 = np.asarray(Solution.x2, dtype=float)
-        u1 = np.asarray(Solution.u1, dtype=float)
-        u2 = np.asarray(Solution.u2, dtype=float)
-        if x1.ndim != 2 or x2.ndim != 2 or x1.shape[0] != x2.shape[0]:
-            raise ValueError("Solution.x1 and Solution.x2 must have equal-length trajectories")
-        if u1.ndim != 2 or u2.ndim != 2 or u1.shape[0] != u2.shape[0]:
-            raise ValueError("Solution.u1 and Solution.u2 must have equal-length trajectories")
-        if x1.shape[0] != self.N + 1 or u1.shape[0] != self.N:
+        player_states = [np.asarray(getattr(Solution, f"x{p + 1}"), dtype=float)
+                         for p in range(player_count)]
+        player_controls = [np.asarray(getattr(Solution, f"u{p + 1}"), dtype=float)
+                           for p in range(player_count)]
+        if any(value.ndim != 2 or value.shape[0] != self.N + 1
+               for value in player_states):
+            raise ValueError("all solution state trajectories must have N + 1 rows")
+        if any(value.ndim != 2 or value.shape[0] != self.N
+               for value in player_controls):
+            raise ValueError("all solution control trajectories must have N rows")
+        if player_states[0].shape[0] != self.N + 1 or player_controls[0].shape[0] != self.N:
             raise ValueError(
                 f"the solution must contain {self.N + 1} states and "
                 f"{self.N} controls"
             )
 
-        solution_states = np.concatenate((x1, x2), axis=1)
-        solution_controls = np.concatenate((u1, u2), axis=1)
+        solution_states = np.concatenate(player_states, axis=1)
+        solution_controls = np.concatenate(player_controls, axis=1)
         if solution_states.shape[1] != self.game.nx:
             raise ValueError(f"solution states must have {self.game.nx} elements")
         if solution_controls.shape[1] != self.game.nu:
@@ -1812,6 +2278,7 @@ class DGSolver:
         """
         if not hasattr(self, "backup"):
             raise RuntimeError("backup controller has not been initialized")
+        player_count = getattr(self.game, "n_players", 2)
 
         state = np.asarray(x, dtype=float).reshape(-1)
         states = np.asarray(self.backup.x, dtype=float)
@@ -1873,10 +2340,11 @@ class DGSolver:
 
             self.Solution.t = float(times[backup_index])
             self.Solution.x0 = state.copy()
-            self.Solution.x1 = remaining_states[:, :self.game.nx1]
-            self.Solution.x2 = remaining_states[:, self.game.nx1:]
-            self.Solution.u1 = remaining_controls[:, :self.game.nu1]
-            self.Solution.u2 = remaining_controls[:, self.game.nu1:]
+            for player in range(player_count):
+                xs = slice(player * self.game.nx1, (player + 1) * self.game.nx1)
+                us = slice(player * self.game.nu1, (player + 1) * self.game.nu1)
+                setattr(self.Solution, f"x{player + 1}", remaining_states[:, xs])
+                setattr(self.Solution, f"u{player + 1}", remaining_controls[:, us])
             self.Solution.indx = 0
             self.Solution.success = False
             self.Solution.status = "backup_controller"

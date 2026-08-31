@@ -2,7 +2,7 @@ import numpy as np
 import casadi as ca
 
 class GameDynamics:
-    """Two-player 2D single- or double-integrator dynamics with RK4 integration."""
+    """Multi-player 2D single- or double-integrator game dynamics."""
 
     # Return codes for one integration cycle.
     INPUT_OUTSIDE_BOUNDS = 1
@@ -19,6 +19,7 @@ class GameDynamics:
         x0,
         x1f,
         x2f,
+        x3f=None,
         u_min=-2,
         u_max=2,
         L=20.0,
@@ -39,11 +40,20 @@ class GameDynamics:
         self.dt = float(dt)
         self.dynamics_type = int(dynamics_type)
         self.nx1 = 2 if self.is_single_integrator else 4
-        self.nx2 = self.nx1
         self.nu1 = 2
-        self.nu2 = 2
-        self.nx = self.nx1 + self.nx2
-        self.nu = self.nu1 + self.nu2
+        self.targets = [
+            np.asarray(target, dtype=float).reshape(-1)
+            for target in (x1f, x2f, x3f) if target is not None
+        ]
+        self.n_players = len(self.targets)
+        if self.n_players not in (2, 3):
+            raise ValueError("GameDynamics supports two or three players")
+        if any(target.shape != (self.nx1,) for target in self.targets):
+            raise ValueError(f"each target must contain {self.nx1} state values")
+        self.nx2 = self.nx1
+        self.nu2 = self.nu1
+        self.nx = self.n_players * self.nx1
+        self.nu = self.n_players * self.nu1
         self.iteration = 0
         self.Max_Iterations = MaxIterations
 
@@ -73,11 +83,13 @@ class GameDynamics:
         self.x0 = x0
         self.x1f = x1f
         self.x2f = x2f
+        self.x3f = x3f
 
         # Define shared constranits function:
         x_sym = ca.SX.sym('x_sym', self.nx)
-        u1_sym = ca.SX.sym('u1_sym', self.nu1)
-        u2_sym = ca.SX.sym('u2_sym', self.nu2)
+        u_syms = [ca.SX.sym(f'u{player + 1}_sym', self.nu1)
+                  for player in range(self.n_players)]
+        u1_sym, u2_sym = u_syms[:2]
 
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [u1_sym[0]+u2_sym[0]-self.u_min_shared, self.u_max_shared-u1_sym[0]-u2_sym[0], u1_sym[1]+u2_sym[1]-self.u_min_shared, self.u_max_shared-u2_sym[1]-u1_sym[1]])
         if self.is_single_integrator:
@@ -115,7 +127,24 @@ class GameDynamics:
                                                                         v1_sym[1]-self.vy_min,
                                                                         self.vy_max-v1_sym[1]])
         
-        self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [4.5*self.vy_max**2 - ca.sumsqr(v1_sym) - ca.sumsqr(v2_sym), ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
+        velocities = []
+        for player, u_sym in enumerate(u_syms):
+            offset = player * self.nx1
+            velocities.append(u_sym if self.is_single_integrator
+                              else x_sym[offset + 2:offset + 4])
+        shared_constraints = [
+            4.5 * self.vy_max**2 - sum(ca.sumsqr(v) for v in velocities)
+        ]
+        for first in range(self.n_players):
+            for second in range(first + 1, self.n_players):
+                i = first * self.nx1
+                j = second * self.nx1
+                shared_constraints.append(
+                    ca.sumsqr(x_sym[i:i + 2] - x_sym[j:j + 2]) - self.d_sep**2
+                )
+        self.f_shared = ca.Function(
+            'f_shared', [x_sym, *u_syms], shared_constraints
+        )
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
 
         # Dynamics Function:
@@ -229,7 +258,7 @@ class GameDynamics:
             player_count = 1
         elif x_size == self.nx:
             expected_u_size = self.nu
-            player_count = 2
+            player_count = self.n_players
         else:
             raise ValueError(
                 f"x must contain one player ({self.nx1} elements) or "
@@ -292,20 +321,25 @@ class GameDynamics:
         # k4 = self.dynamics(x + dt * k3, u)
 
         # self.x = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        x_next[0] = x[0] + dt * x[2] + 0.5 * dt**2 * u[0]
-        x_next[1] = x[1] + dt * x[3] + 0.5 * dt**2 * u[1]
-        x_next[2] = x[2] + dt * u[0]
-        x_next[3] = x[3] + dt * u[1]
-        x_next[4] = x[4] + dt * x[6] + 0.5 * dt**2 * u[2]
-        x_next[5] = x[5] + dt * x[7] + 0.5 * dt**2 * u[3]
-        x_next[6] = x[6] + dt * u[2]
-        x_next[7] = x[7] + dt * u[3]
+        if self.is_single_integrator:
+            x_next = x + dt * u
+        else:
+            for player in range(self.n_players):
+                xi = player * self.nx1
+                ui = player * self.nu1
+                x_next[xi:xi + 2] = (
+                    x[xi:xi + 2] + dt * x[xi + 2:xi + 4]
+                    + 0.5 * dt**2 * u[ui:ui + 2]
+                )
+                x_next[xi + 2:xi + 4] = (
+                    x[xi + 2:xi + 4] + dt * u[ui:ui + 2]
+                )
         self.x = x_next
         self.t += dt
 
         # Check axis-aligned position bounds for both players.
-        xs = np.array([self.x[0], self.x[self.nx1]])
-        ys = np.array([self.x[1], self.x[self.nx1 + 1]])
+        xs = self.x[0::self.nx1]
+        ys = self.x[1::self.nx1]
 
         if (
             np.any(xs < self.x_min-self.eps)
@@ -317,8 +351,8 @@ class GameDynamics:
             return self.POSITION_OUTSIDE_BOUNDS
 
         if not self.is_single_integrator:
-            vxs = np.array([self.x[2], self.x[self.nx1 + 2]])
-            vys = np.array([self.x[3], self.x[self.nx1 + 3]])
+            vxs = self.x[2::self.nx1]
+            vys = self.x[3::self.nx1]
             if (
                 np.any(vxs < self.vx_min-self.eps)
                 or np.any(vxs > self.vx_max+self.eps)
@@ -328,7 +362,11 @@ class GameDynamics:
                 self._log_history(u, self.VELOCITY_OUTSIDE_BOUNDS)
                 return self.VELOCITY_OUTSIDE_BOUNDS
         
-        f_shared = self.f_shared(self.x, self.u[:self.nu1], self.u[self.nu2:])
+        controls = [
+            self.u[p * self.nu1:(p + 1) * self.nu1]
+            for p in range(self.n_players)
+        ]
+        f_shared = self.f_shared(self.x, *controls)
         if not isinstance(f_shared, tuple):
             f_shared = (f_shared,)
         for f in f_shared:
@@ -379,7 +417,7 @@ class GameDynamics:
         dist = np.linalg.norm(self.x[:2] - self.x[self.nx1:self.nx1 + 2])
         if dist < 2*self.d_sep:
             velocity_gain = 2 * velocity_gain
-        if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < self.d_sep:
+        if np.linalg.norm(self.x2f[0,:2] - self.x[self.nx1:self.nx1 + 2]) < 3*self.d_sep:
             position_gain = 4 * position_gain
 
         position_error = target[:2] - self.x[:2]
@@ -423,7 +461,7 @@ class GameDynamics:
             )
         ):
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-            target[0] += 2.5
+            target[0] += 2.0
         else:
             target = np.asarray(self.x2f, dtype=float).reshape(-1)
         if target.shape != (self.nx2,):
@@ -434,7 +472,7 @@ class GameDynamics:
         distance = np.linalg.norm(self.x[:2] - self.x[p2:p2 + 2])
         if distance < 2 * self.d_sep:
             velocity_gain = 2 * velocity_gain
-        if np.linalg.norm(self.x1f[0, :2] - self.x[:2]) < self.d_sep:
+        if np.linalg.norm(self.x1f[0, :2] - self.x[:2]) < 3*self.d_sep:
             position_gain = 4 * position_gain
 
         position_error = target[:2] - self.x[p2:p2 + 2]
@@ -455,6 +493,44 @@ class GameDynamics:
                         / np.linalg.norm(velocity) ** 2
                     )
 
-        u_min = self._as_bounds(self.u_min, self.nu, "u_min")[self.nu1:]
-        u_max = self._as_bounds(self.u_max, self.nu, "u_max")[self.nu1:]
+        u_min = self._as_bounds(self.u_min, self.nu, "u_min")[self.nu1:2 * self.nu1]
+        u_max = self._as_bounds(self.u_max, self.nu, "u_max")[self.nu1:2 * self.nu1]
         return np.clip(control, u_min, u_max)
+
+    def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
+        """Return the same bounded goal-tracking controller for player 3."""
+        if self.n_players < 3:
+            raise ValueError("player 3 is not part of this game")
+        offset = 2 * self.nx1
+        target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
+        
+        if (
+            self.t < 2.0
+            and (
+                self.is_single_integrator
+                or (
+                    abs(self.x[3]) < self.vy_max - 0.5
+                    and abs(self.x[2]) < self.vx_max - 0.5
+                )
+            )
+        ):
+            target[1] += 3.0
+        
+        position_error = target[:2] - self.x[offset:offset + 2]
+        if np.linalg.norm(position_error) < 3*self.d_sep:
+            position_gain = 4 * position_gain
+        if self.is_single_integrator:
+            control = position_gain * position_error
+        else:
+            velocity = self.x[offset + 2:offset + 4]
+            control = position_gain * position_error - velocity_gain * velocity
+            
+
+            
+        # limit max velocity:
+        if np.linalg.norm(velocity) > self.vx_max - 1.0 and self.t <= 3.0:
+            control = control - velocity / np.linalg.norm(velocity)
+            if np.dot(control, velocity) > 0:
+                control = (control - np.dot(control, velocity)* velocity/ np.linalg.norm(velocity) ** 2)
+            
+        return np.clip(control, self.u_min, self.u_max)

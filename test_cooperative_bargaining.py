@@ -393,5 +393,39 @@ class SimpleControllerTests(unittest.TestCase):
         self.assertEqual(game.SimpleController2().shape, (2,))
 
 
+class ThreePlayerGameTests(unittest.TestCase):
+    def setUp(self):
+        self.targets = [
+            np.array([[1.0, -1.0, 0.0, 0.0]]),
+            np.array([[-1.0, 1.0, 0.0, 0.0]]),
+            np.array([[0.0, -1.0, 0.0, 0.0]]),
+        ]
+        self.x0 = np.array([
+            -1.0, 1.0, 0.0, 0.0,
+            0.0, -1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0, 0.0,
+        ])
+
+    def test_dynamics_integrates_all_three_players(self):
+        game = GameDynamics(
+            0.1, self.x0, *self.targets, dynamics_type=2
+        )
+        game.reset_game()
+        control = np.array([1.0, 0.0, 0.0, 1.0, -1.0, 0.0])
+        self.assertEqual(game.step(control), game.STEP_OK)
+        self.assertEqual(game.get_state().shape, (12,))
+        np.testing.assert_allclose(game.get_state()[2::4], [0.1, 0.0, -0.1])
+
+    def test_solver_builds_three_player_kkt_blocks(self):
+        game = GameDynamics(
+            0.1, self.x0, *self.targets, dynamics_type=2
+        )
+        solver = DGSolver(game, *self.targets, horizon=2, cooperative=True)
+        backend = solver.build_solver()
+        self.assertEqual(backend.params["nx"], 12)
+        self.assertEqual(len(backend.Z_len), 6)
+        self.assertEqual(solver.cooperative_cost_weights.shape, (3,))
+
+
 if __name__ == "__main__":
     unittest.main()
