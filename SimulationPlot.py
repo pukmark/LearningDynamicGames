@@ -301,7 +301,7 @@ def plot_simulation_init(game):
     ax_xy.set_ylabel("y position")
     ax_xy.set_title(f"XY trajectory - Iteration: {game.iteration}")
     ax_xy.grid(True, alpha=0.3)
-    ax_xy.legend(loc="best")
+    ax_xy.legend(loc="best", ncol=2)
 
     input_label = "v" if game.is_single_integrator else "a"
     lines["p1_ax"], = ax_u.plot([], [], color="C0", linestyle="-", drawstyle="steps-post", label=f"P1 {input_label}x")
@@ -360,7 +360,7 @@ def plot_simulation_init(game):
             *([Patch(facecolor="C6", label="P3 current predicted")]
               if game.n_players == 3 else []),
         ]),
-        loc="best", ncol=2,
+        loc="best", ncol=3,
     )
     lines["player_distance"], = ax_distance.plot(
         [], [], "C0-", linewidth=2, label="P1-P2 distance"

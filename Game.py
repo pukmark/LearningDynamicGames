@@ -514,7 +514,7 @@ class GameDynamics:
                 )
             )
         ):
-            target[1] += 3.0
+            target[1] += 2.5
         
         position_error = target[:2] - self.x[offset:offset + 2]
         if np.linalg.norm(position_error) < 3*self.d_sep:
