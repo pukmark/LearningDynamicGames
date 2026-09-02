@@ -37,7 +37,7 @@ cooperative_mode = True
 bargaining_gammas = np.array([0.5])
 bargaining_gamma1 = np.array([0.333, 0.4, 0.2])
 bargaining_gamma2 = np.array([0.333, 0.2, 0.4])
-cooperative_selection = "weighted_sum" # "weighted_sum", "nash_bargaining"
+cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
 # the bootstrap use the previous completed totals minus costs executed so far.

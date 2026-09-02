@@ -7,6 +7,27 @@ from pathlib import Path
 eps = 1e-1
 
 
+def _cost_label_indices(iteration_count, maximum_groups=6):
+    """Return a bounded set of iteration indices whose bars get value labels."""
+    if iteration_count <= maximum_groups:
+        return set(range(iteration_count))
+    indices = np.linspace(0, iteration_count - 1, maximum_groups, dtype=int)
+    return set(np.unique(indices))
+
+
+def _label_cost_bars(ax, bars, visible_indices=None):
+    """Add compact vertical labels to selected bars in a container."""
+    labels = []
+    for index, bar in enumerate(bars):
+        if visible_indices is not None and index not in visible_indices:
+            labels.append("")
+            continue
+        labels.append(f"{bar.get_height():.2f}".rstrip("0").rstrip("."))
+    return ax.bar_label(
+        bars, labels=labels, padding=2, fontsize=7, rotation=90,
+    )
+
+
 def _predicted_player_distance(solution, dt):
     """Return time and inter-player distance predicted by one solver."""
     if solution is None or not hasattr(solution, "x1") or not hasattr(solution, "x2"):
@@ -806,6 +827,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         p2_completed_values = [item[2] for item in completed_iteration_costs]
         p3_completed_values = [item[3] for item in completed_iteration_costs]
         bar_width = 0.24 if game.n_players == 3 else 0.34
+        completed_bar_containers = []
+        predicted_bar_containers = []
         if completed_iterations:
             p1_offset = -bar_width if game.n_players == 3 else -bar_width / 2
             p2_offset = 0.0 if game.n_players == 3 else bar_width / 2
@@ -822,12 +845,14 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 width=bar_width,
             )
             state["cost_bars"].extend((p1_bars, p2_bars))
+            completed_bar_containers.extend((p1_bars, p2_bars))
             if game.n_players == 3:
                 p3_bars = ax_cost.bar(
                     np.asarray(completed_iterations) + bar_width,
                     p3_completed_values, color="C2", width=bar_width,
                 )
                 state["cost_bars"].append(p3_bars)
+                completed_bar_containers.append(p3_bars)
 
         if predicted_cost1 is not None:
             predicted_p1_bars = ax_cost.bar(
@@ -837,6 +862,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 width=bar_width,
             )
             state["cost_bars"].append(predicted_p1_bars)
+            predicted_bar_containers.append(predicted_p1_bars)
         if predicted_cost2 is not None:
             predicted_p2_bars = ax_cost.bar(
                 [predicted_cost2[0] + (0.0 if game.n_players == 3 else bar_width / 2)],
@@ -845,21 +871,26 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 width=bar_width,
             )
             state["cost_bars"].append(predicted_p2_bars)
+            predicted_bar_containers.append(predicted_p2_bars)
         if predicted_cost3 is not None:
             predicted_p3_bars = ax_cost.bar(
                 [predicted_cost3[0] + bar_width], [predicted_cost3[1]],
                 color="C6", width=bar_width,
             )
             state["cost_bars"].append(predicted_p3_bars)
+            predicted_bar_containers.append(predicted_p3_bars)
 
-        for bars in state["cost_bars"]:
-            cost_labels = [
-                f"{bar.get_height():.2f}".rstrip("0").rstrip(".")
-                for bar in bars
-            ]
+        # Label at most six completed iteration groups. This keeps the exact
+        # values available across the history without producing an unreadable
+        # wall of text as learning iterations accumulate. Predicted bars are
+        # always labeled because they represent the current decision.
+        visible_label_indices = _cost_label_indices(len(completed_iterations))
+        for bars in completed_bar_containers:
             state["cost_labels"].extend(
-                ax_cost.bar_label(bars, labels=cost_labels, padding=3)
+                _label_cost_bars(ax_cost, bars, visible_label_indices)
             )
+        for bars in predicted_bar_containers:
+            state["cost_labels"].extend(_label_cost_bars(ax_cost, bars))
 
         state["plotted_iteration_costs"] = cost_plot_data
         plotted_iterations = completed_iterations.copy()
@@ -871,7 +902,15 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             plotted_iterations.append(predicted_cost3[0])
         plotted_iterations = sorted(set(plotted_iterations))
         if plotted_iterations:
-            ax_cost.set_xticks(plotted_iterations)
+            if len(plotted_iterations) <= 12:
+                tick_iterations = plotted_iterations
+            else:
+                tick_indices = np.linspace(
+                    0, len(plotted_iterations) - 1, 12, dtype=int
+                )
+                tick_iterations = [plotted_iterations[index]
+                                   for index in np.unique(tick_indices)]
+            ax_cost.set_xticks(tick_iterations)
             ax_cost.set_xlim(0.4, plotted_iterations[-1] + 0.6)
         ax_cost.relim()
         ax_cost.autoscale_view(scalex=False)

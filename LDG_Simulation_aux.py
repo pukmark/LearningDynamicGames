@@ -213,8 +213,6 @@ def rebuild_analyzed_data(
             p2_costs_to_go,
             p3_costs_to_go,
         ):
-            if any( ca.bilin(solver.proximity_Q, saved_state - state)  <= 1e-12 for saved_state in analyzed_data.state ): continue
-
             analyzed_data.t.append(t)
             analyzed_data.state.append(state)
 
