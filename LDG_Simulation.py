@@ -229,7 +229,11 @@ if __name__ == '__main__':
                 if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
                     u1 = np.zeros(Game.nu)
                 # Player 1 Controller
-                elif getattr(Solver1.Solution, "terminal_sample_state", None) is not None and float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8:
+                elif (getattr(Solver1.Solution, "terminal_sample_state", None) is not None and 
+                      float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8 and
+                      float(ca.bilin(Solver1.Qk, Game.x[Game.nx1:2 * Game.nx1] - Game.x2f)) <= 1e-8 and
+                      (0 if player_count < 3 else float(ca.bilin(Solver1.Qk, Game.x[2*Game.nx1:] - Game.x3f)))  <= 1e-8 and
+                      Solver1.Solution.success and iter > 0):
                     Solver1.Solution.indx += 1
                     u1 = np.concatenate([
                         getattr(Solver1.Solution, f"u{player + 1}")[Solver1.Solution.indx]
