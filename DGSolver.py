@@ -619,7 +619,10 @@ class DGSolver:
             if k == 0:
                 h.append(x1[k,:].T - x1_0.T)
             else:
-                h.append(x1[k,:].T - A1@x1[k-1,:].T - B1@u1[k-1,:].T)
+                h.append(
+                    x1[k, :].T
+                    - self._player_next_state(x1[k - 1, :], u1[k - 1, :], A1, B1)
+                )
             n_mu += h[-1].shape[0]
 
         # Final joint state is a convex combination of the sampled dataset
@@ -643,6 +646,11 @@ class DGSolver:
         # Player 1 Private Constraints:
         p1 = []
         for k in range(self.N + 1):
+            if self.game.is_unicycle:
+                uk = u1[k, :] if k < self.N else ca.DM.zeros(self.game.nu1)
+                values = self.game.f_private(x1[k, :], uk)
+                p1.extend(values if isinstance(values, tuple) else (values,))
+                continue
             px = x1[k, 0]
             py = x1[k, 1]
 
@@ -724,7 +732,10 @@ class DGSolver:
             if k == 0:
                 h.append(x2[k, :].T - x2_0.T)
             else:
-                h.append(x2[k, :].T - A2 @ x2[k-1, :].T - B2 @ u2[k-1, :].T)
+                h.append(
+                    x2[k, :].T
+                    - self._player_next_state(x2[k - 1, :], u2[k - 1, :], A2, B2)
+                )
             n_mu += h[-1].shape[0]
             
         if u2_0 is not None:
@@ -751,6 +762,11 @@ class DGSolver:
         # Player 2 state layout is [px, py] or [px, py, vx, vy].
         p2 = []
         for k in range(self.N + 1):
+            if self.game.is_unicycle:
+                uk = u2[k, :] if k < self.N else ca.DM.zeros(self.game.nu1)
+                values = self.game.f_private(x2[k, :], uk)
+                p2.extend(values if isinstance(values, tuple) else (values,))
+                continue
             px = x2[k, 0]
             py = x2[k, 1]
 
@@ -829,12 +845,20 @@ class DGSolver:
         # Build Z vector and F and J functions:        
         Z_len = []
         Z = []
-        z1 = ca.vertcat(x1[:], u1[:], ai_xf[:], x1f_slack[:])
+        z1_parts = [ca.vec(x1), ca.vec(u1)]
+        if int(ca.vertcat(ai_xf).shape[0]):
+            z1_parts.append(ca.vec(ai_xf))
+        if int(ca.vertcat(x1f_slack).shape[0]):
+            z1_parts.append(ca.vec(x1f_slack))
+        z1 = ca.vertcat(*z1_parts)
         Z.append(z1)
-        Z_len.append([ca.vertcat(x1[:]).shape[0], ca.vertcat(u1[:]).shape[0], ca.vertcat(ai_xf[:]).shape[0], ca.vertcat(x1f_slack[:]).shape[0]])
-        z2 = ca.vertcat(x2[:], u2[:], x2f_slack[:])
+        Z_len.append([ca.vec(x1).shape[0], ca.vec(u1).shape[0], ca.vertcat(ai_xf).shape[0], ca.vertcat(x1f_slack).shape[0]])
+        z2_parts = [ca.vec(x2), ca.vec(u2)]
+        if int(ca.vertcat(x2f_slack).shape[0]):
+            z2_parts.append(ca.vec(x2f_slack))
+        z2 = ca.vertcat(*z2_parts)
         Z.append(z2)
-        Z_len.append([ca.vertcat(x2[:]).shape[0], ca.vertcat(u2[:]).shape[0], ca.vertcat(x2f_slack[:]).shape[0]])
+        Z_len.append([ca.vec(x2).shape[0], ca.vec(u2).shape[0], ca.vertcat(x2f_slack).shape[0]])
         Z.append(ca.vertcat(*mu_vec))
         Z_len.append(Z[-1].shape[0])
         Z.append(ca.vertcat(*lambda_vec))
@@ -933,8 +957,12 @@ class DGSolver:
                 if k == 0:
                     h.append(xs[player][k, :].T - x0s[player].T)
                 else:
-                    h.append(xs[player][k, :].T - A @ xs[player][k - 1, :].T
-                             - B @ us[player][k - 1, :].T)
+                    h.append(
+                        xs[player][k, :].T
+                        - self._player_next_state(
+                            xs[player][k - 1, :], us[player][k - 1, :], A, B
+                        )
+                    )
             if terminal_safe_set is not None:
                 start = player * self.game.nx1
                 terminal_states = terminal_safe_set.state.T[
@@ -956,6 +984,12 @@ class DGSolver:
 
             private = []
             for k in range(self.N + 1):
+                if self.game.is_unicycle:
+                    uk = (us[player][k, :] if k < self.N
+                          else ca.DM.zeros(self.game.nu1))
+                    values = self.game.f_private(xs[player][k, :], uk)
+                    private.extend(values if isinstance(values, tuple) else (values,))
+                    continue
                 xp = xs[player][k, :]
                 private.extend([
                     xp[0] - self.game.x_min, self.game.x_max - xp[0],
@@ -1072,6 +1106,14 @@ class DGSolver:
         )
         return A, B
 
+    def _player_next_state(self, state, control, A=None, B=None):
+        """Return one discrete player step for symbolic or numeric values."""
+        if self.game.is_unicycle:
+            return self.game.dynamics_fun(state, control)
+        if A is None or B is None:
+            A, B = self._discrete_player_dynamics(self.game.nx1)
+        return A @ state.T + B @ control.T
+
     def step(self, t, x0, current_cost1=0.0, current_cost2=0.0,
              current_cost3=0.0,
              forced_alpha=None, u1_0=None, u2_0=None,
@@ -1129,7 +1171,10 @@ class DGSolver:
             candidate_indices = np.where(
                 cost_filter
                 & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
-                & (distance_to_terminal <= np.sqrt(2) * self.game.vx_max * self.N * self.dt)
+                & (distance_to_terminal <= (
+                    self.game.v_max if self.game.is_unicycle
+                    else np.sqrt(2) * self.game.vx_max
+                ) * self.N * self.dt)
                 & (sample_times > t + (self.N-1) * self.dt - 1e-5)
                 
             )[0]
@@ -1599,8 +1644,12 @@ class DGSolver:
         n_z = int(self.Solver.Z.shape[0])
         if u1_0 is None:
             u1 = np.ones((self.N, self.game.nu1))
-            u1[:,0] *= -self.game.u_max*0.01
-            u1[:,1] *= -self.game.u_max*0.01
+            if self.game.is_unicycle:
+                u1[:, 0] *= -self.game.a_max * 0.01
+                u1[:, 1] *= -self.game.psi_dot_max * 0.01
+            else:
+                u1[:,0] *= -self.game.u_max*0.01
+                u1[:,1] *= -self.game.u_max*0.01
         else:
             u1 = np.asarray(u1_0, dtype=float)
             u1 = u1[:self.N, :]
@@ -1609,8 +1658,12 @@ class DGSolver:
 
         if u2_0 is None:
             u2 = np.ones((self.N, self.game.nu2))
-            u2[:,0] *= self.game.u_max*0.01
-            u2[:,1] *= self.game.u_max*0.01
+            if self.game.is_unicycle:
+                u2[:, 0] *= self.game.a_max * 0.01
+                u2[:, 1] *= self.game.psi_dot_max * 0.01
+            else:
+                u2[:,0] *= self.game.u_max*0.01
+                u2[:,1] *= self.game.u_max*0.01
         else:
             u2 = np.asarray(u2_0, dtype=float)
             u2 = u2[:self.N, :]
@@ -1628,8 +1681,12 @@ class DGSolver:
         x1[0, :] = x1_0.ravel()
         x2[0, :] = x2_0.ravel()
         for k in range(self.N):
-            x1[k + 1, :] = self.A1 @ x1[k, :].T + self.B1 @ u1[k, :].T
-            x2[k + 1, :] = self.A2 @ x2[k, :].T + self.B2 @ u2[k, :].T
+            x1[k + 1, :] = np.asarray(
+                self._player_next_state(x1[k, :], u1[k, :], self.A1, self.B1)
+            ).reshape(-1)
+            x2[k + 1, :] = np.asarray(
+                self._player_next_state(x2[k, :], u2[k, :], self.A2, self.B2)
+            ).reshape(-1)
             
         ai_xf_vec = np.zeros((ai_len,1))
         x1f_slack = np.zeros((x1f_slack_len,1))
@@ -1853,12 +1910,24 @@ class DGSolver:
         for player, lengths in enumerate(self.Solver.Z_len[:self.game.n_players]):
             x_len, u_len, ai_len, slack_len = lengths
             sign = -1.0 if player == 0 else 1.0
-            up = np.full((self.N, self.game.nu1), sign * self.game.u_max * 0.01)
+            if self.game.is_unicycle:
+                up = np.tile(
+                    sign * 0.01 * np.array([
+                        self.game.a_max, self.game.psi_dot_max
+                    ]),
+                    (self.N, 1),
+                )
+            else:
+                up = np.full(
+                    (self.N, self.game.nu1), sign * self.game.u_max * 0.01
+                )
             xp = np.zeros((self.N + 1, self.game.nx1))
             xp[0] = x0s[player]
             A, B = self.A_players[player], self.B_players[player]
             for k in range(self.N):
-                xp[k + 1] = A @ xp[k] + B @ up[k]
+                xp[k + 1] = np.asarray(
+                    self._player_next_state(xp[k], up[k], A, B)
+                ).reshape(-1)
             trajectories.append(xp)
             controls.append(up)
             initial_parts.extend([

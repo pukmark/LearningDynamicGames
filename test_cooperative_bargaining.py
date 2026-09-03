@@ -443,5 +443,49 @@ class ThreePlayerGameTests(unittest.TestCase):
             )
 
 
+class UnicycleDynamicsTests(unittest.TestCase):
+    def setUp(self):
+        self.x1f = np.array([[2.0, 0.0, 0.0, 0.0]])
+        self.x2f = np.array([[-2.0, 0.0, 0.0, np.pi]])
+
+    def test_rk4_integrates_unicycle_state(self):
+        game = GameDynamics(
+            0.1,
+            np.array([0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.5, np.pi]),
+            self.x1f, self.x2f, dynamics_type=3,
+        )
+        game.reset_game()
+        self.assertEqual(game.step(np.array([1.0, 0.0, 0.0, 0.0])), game.STEP_OK)
+        np.testing.assert_allclose(game.x[:4], [0.105, 0.0, 1.1, 0.0], atol=1e-10)
+
+    def test_rejects_turn_rate_and_lateral_acceleration_violations(self):
+        initial = np.array([0.0, 0.0, 2.0, 0.0, 1.0, 1.0, 0.5, np.pi])
+        game = GameDynamics(
+            0.1, initial, self.x1f, self.x2f, dynamics_type=3,
+            psi_dot_max=1.0, an_max=1.0,
+        )
+        game.reset_game()
+        self.assertEqual(
+            game.step(np.array([0.0, 0.6, 0.0, 0.0])),
+            game.INPUT_OUTSIDE_BOUNDS,
+        )
+        np.testing.assert_allclose(game.x, initial)
+        self.assertEqual(
+            game.step(np.array([0.0, 1.1, 0.0, 0.0])),
+            game.INPUT_OUTSIDE_BOUNDS,
+        )
+
+    def test_solver_uses_nonlinear_unicycle_dynamics(self):
+        game = GameDynamics(
+            0.1,
+            np.array([0.0, 0.0, 0.5, 0.0, 1.0, 1.0, 0.5, np.pi]),
+            self.x1f, self.x2f, dynamics_type=3,
+        )
+        solver = DGSolver(game, self.x1f, self.x2f, horizon=2)
+        backend = solver.build_solver()
+        self.assertEqual(backend.params["dynamics_type"], 3)
+        self.assertGreater(backend.J.nnz_out(0), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

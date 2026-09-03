@@ -324,18 +324,28 @@ def plot_simulation_init(game):
     ax_xy.grid(True, alpha=0.3)
     ax_xy.legend(loc="best", ncol=2)
 
-    input_label = "v" if game.is_single_integrator else "a"
-    lines["p1_ax"], = ax_u.plot([], [], color="C0", linestyle="-", drawstyle="steps-post", label=f"P1 {input_label}x")
-    lines["p1_ay"], = ax_u.plot([], [], color="C0", linestyle="--", drawstyle="steps-post", label=f"P1 {input_label}y")
-    lines["p2_ax"], = ax_u.plot([], [], color="C1", linestyle="-", drawstyle="steps-post", label=f"P2 {input_label}x")
-    lines["p2_ay"], = ax_u.plot([], [], color="C1", linestyle="--", drawstyle="steps-post", label=f"P2 {input_label}y")
+    if game.is_unicycle:
+        input_x_label, input_y_label = "a", r"$\dot{\psi}$"
+    else:
+        input_label = "v" if game.is_single_integrator else "a"
+        input_x_label, input_y_label = f"{input_label}x", f"{input_label}y"
+    lines["p1_ax"], = ax_u.plot([], [], color="C0", linestyle="-", drawstyle="steps-post", label=f"P1 {input_x_label}")
+    lines["p1_ay"], = ax_u.plot([], [], color="C0", linestyle="--", drawstyle="steps-post", label=f"P1 {input_y_label}")
+    lines["p2_ax"], = ax_u.plot([], [], color="C1", linestyle="-", drawstyle="steps-post", label=f"P2 {input_x_label}")
+    lines["p2_ay"], = ax_u.plot([], [], color="C1", linestyle="--", drawstyle="steps-post", label=f"P2 {input_y_label}")
     if game.n_players == 3:
-        lines["p3_ax"], = ax_u.plot([], [], color="C2", linestyle="-", drawstyle="steps-post", label=f"P3 {input_label}x")
-        lines["p3_ay"], = ax_u.plot([], [], color="C2", linestyle="--", drawstyle="steps-post", label=f"P3 {input_label}y")
-    lines["sum_ax"], = ax_u.plot([], [], color="C2", linestyle="-", linewidth=2, drawstyle="steps-post", label=f"Sum {input_label}x")
-    lines["sum_ay"], = ax_u.plot([], [], color="C3", linestyle="--", linewidth=2, drawstyle="steps-post", label=f"Sum {input_label}y")
-    ax_u.axhline(game.u_max_shared, color="C4", linestyle=":", linewidth=2, label="Shared input maximum")
-    ax_u.axhline(game.u_min_shared, color="C4", linestyle=":", linewidth=2, label="Shared input minimum")
+        lines["p3_ax"], = ax_u.plot([], [], color="C2", linestyle="-", drawstyle="steps-post", label=f"P3 {input_x_label}")
+        lines["p3_ay"], = ax_u.plot([], [], color="C2", linestyle="--", drawstyle="steps-post", label=f"P3 {input_y_label}")
+    lines["sum_ax"], = ax_u.plot([], [], color="C2", linestyle="-", linewidth=2, drawstyle="steps-post", label=f"Sum {input_x_label}")
+    lines["sum_ay"], = ax_u.plot([], [], color="C3", linestyle="--", linewidth=2, drawstyle="steps-post", label=f"Sum {input_y_label}")
+    if game.is_unicycle:
+        ax_u.axhline(game.a_max, color="C4", linestyle=":", linewidth=1.5, label="Acceleration limits")
+        ax_u.axhline(-game.a_max, color="C4", linestyle=":", linewidth=1.5)
+        ax_u.axhline(game.psi_dot_max, color="C5", linestyle=":", linewidth=1.5, label="Turn-rate limits")
+        ax_u.axhline(-game.psi_dot_max, color="C5", linestyle=":", linewidth=1.5)
+    else:
+        ax_u.axhline(game.u_max_shared, color="C4", linestyle=":", linewidth=2, label="Shared input maximum")
+        ax_u.axhline(game.u_min_shared, color="C4", linestyle=":", linewidth=2, label="Shared input minimum")
     ax_u.set_xlabel("time")
     ax_u.set_ylabel("input")
     ax_u.set_title("Inputs vs time")
@@ -356,13 +366,18 @@ def plot_simulation_init(game):
         lines["p2_v_prediction"], = ax_velocity.plot(
             [], [], "C1--", alpha=0.8, label="P2 v prediction (Solver1)"
         )
+        velocity_limit = (game.v_max if game.is_unicycle
+                          else np.sqrt(game.vx_max**2 + game.vy_max**2))
         ax_velocity.axhline(
-            np.sqrt(game.vx_max**2 + game.vy_max**2), color="C4", linestyle=":", linewidth=2,
-            label="RSS maximum",
+            velocity_limit, color="C4", linestyle=":", linewidth=2,
+            label="Maximum speed" if game.is_unicycle else "RSS maximum",
         )
         ax_velocity.set_xlabel("time")
         ax_velocity.set_ylabel("velocity")
-        ax_velocity.set_title("Player velocities and root sum square")
+        ax_velocity.set_title(
+            "Player speeds" if game.is_unicycle
+            else "Player velocities and root sum square"
+        )
         ax_velocity.grid(True, alpha=0.3)
         # ax_velocity.legend(loc="best", ncol=2)
 
@@ -994,14 +1009,19 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     ax_u.autoscale_view()
 
     if ax_velocity is not None:
-        p1_velocity = x[:, 2:4]
-        p2_velocity = x[:, p2_i + 2:p2_i + 4]
+        if game.is_unicycle:
+            p1_speed = x[:, 2]
+            p2_speed = x[:, p2_i + 2]
+        else:
+            p1_speed = np.linalg.norm(x[:, 2:4], axis=1)
+            p2_speed = np.linalg.norm(x[:, p2_i + 2:p2_i + 4], axis=1)
 
-        lines["p1_v"].set_data(t, np.linalg.norm(p1_velocity, axis=1))
-        lines["p2_v"].set_data(t, np.linalg.norm(p2_velocity, axis=1))
+        lines["p1_v"].set_data(t, p1_speed)
+        lines["p2_v"].set_data(t, p2_speed)
         if game.n_players == 3:
-            p3_velocity = x[:, p3_i + 2:p3_i + 4]
-            lines["p3_v"].set_data(t, np.linalg.norm(p3_velocity, axis=1))
+            p3_speed = (x[:, p3_i + 2] if game.is_unicycle else
+                        np.linalg.norm(x[:, p3_i + 2:p3_i + 4], axis=1))
+            lines["p3_v"].set_data(t, p3_speed)
 
         if solution is not None and hasattr(solution, "x1") and hasattr(solution, "x2"):
             predicted_x1 = np.asarray(solution.x1, dtype=float)
@@ -1022,11 +1042,13 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 )
                 lines["p1_v_prediction"].set_data(
                     p1_prediction_time,
-                    np.linalg.norm(predicted_x1[:, 2:4], axis=1),
+                    (predicted_x1[:, 2] if game.is_unicycle else
+                     np.linalg.norm(predicted_x1[:, 2:4], axis=1)),
                 )
                 lines["p2_v_prediction"].set_data(
                     p2_prediction_time,
-                    np.linalg.norm(predicted_x2[:, 2:4], axis=1),
+                    (predicted_x2[:, 2] if game.is_unicycle else
+                     np.linalg.norm(predicted_x2[:, 2:4], axis=1)),
                 )
             else:
                 lines["p1_v_prediction"].set_data([], [])
@@ -1039,7 +1061,9 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
                 predicted_x3 = np.asarray(solution.x3, dtype=float)
                 prediction_time = float(getattr(solution, "t", game.t)) + np.arange(predicted_x3.shape[0]) * game.dt
                 lines["p3_v_prediction"].set_data(
-                    prediction_time, np.linalg.norm(predicted_x3[:, 2:4], axis=1)
+                    prediction_time,
+                    (predicted_x3[:, 2] if game.is_unicycle else
+                     np.linalg.norm(predicted_x3[:, 2:4], axis=1)),
                 )
             else:
                 lines["p3_v_prediction"].set_data([], [])

@@ -28,7 +28,11 @@ L = 5.0
 W = 4.0
 dt = 0.1
 tf = 10.0
-dynamics_type = 2  # 1: single integrator, 2: double integrator
+dynamics_type = 3  # 1: single integrator, 2: double integrator, 3: unicycle
+v_max = 2.0
+a_max = 2.0
+psi_dot_max = 1.0  # rad/s
+an_max = 1.0  # m/s^2, lateral acceleration |v * psi_dot|
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
 # state and the shared-constraint equilibrium weight. The selection can use
@@ -56,7 +60,7 @@ x0_players = (
 alpha1, alpha2 = 0.5, 0.25
 
 max_workers = max(1, int(os.cpu_count() * 0.3))
-# max_workers = 1
+max_workers = 1
         
 
 if __name__ == '__main__':
@@ -157,7 +161,9 @@ if __name__ == '__main__':
     
     Game = GameDynamics(
         dt, x0, x1f, x2f, x3f=x3f if player_count == 3 else None,
-        L=L, W=W, dynamics_type=dynamics_type, MaxIterations=Niterations,
+        L=L, W=W, dynamics_type=dynamics_type, v_max=v_max, a_max=a_max,
+        psi_dot_max=psi_dot_max, an_max=an_max,
+        MaxIterations=Niterations,
     )
     LearnedData = init_learned_data()
     # To reuse saved data instead: LearnedData = load_learned_data(learned_data_path)

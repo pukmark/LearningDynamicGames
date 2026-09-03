@@ -2,7 +2,7 @@ import numpy as np
 import casadi as ca
 
 class GameDynamics:
-    """Multi-player 2D single- or double-integrator game dynamics."""
+    """Multi-player planar dynamics, including a nonlinear unicycle model."""
 
     # Return codes for one integration cycle.
     INPUT_OUTSIDE_BOUNDS = 1
@@ -28,14 +28,21 @@ class GameDynamics:
         vx_max=2,
         vy_min=-2,
         vy_max=2,
+        v_max=2.0,
+        a_max=2.0,
+        psi_dot_max=1.0,
+        an_max=1.0,
         d_sep=0.3,
-        dynamics_type=2,
+        dynamics_type=3,
         MaxIterations=50,
     ):
         if dt <= 0:
             raise ValueError("dt must be positive")
-        if dynamics_type not in (1, 2):
-            raise ValueError("dynamics_type must be 1 for single integrator or 2 for double integrator")
+        if dynamics_type not in (1, 2, 3):
+            raise ValueError(
+                "dynamics_type must be 1 (single integrator), 2 (double "
+                "integrator), or 3 (unicycle)"
+            )
 
         self.dt = float(dt)
         self.dynamics_type = int(dynamics_type)
@@ -72,6 +79,13 @@ class GameDynamics:
         self.vx_max = float(vx_max)
         self.vy_min = float(vy_min)
         self.vy_max = float(vy_max)
+        self.v_min = 0.0
+        self.v_max = float(v_max)
+        self.a_max = float(a_max)
+        self.psi_dot_max = float(psi_dot_max)
+        self.an_max = float(an_max)
+        if min(self.v_max, self.a_max, self.psi_dot_max, self.an_max) <= 0:
+            raise ValueError("unicycle limits must be positive")
         
         # shared constranits data
         shared_f_limit = 1.25
@@ -92,14 +106,12 @@ class GameDynamics:
         u1_sym, u2_sym = u_syms[:2]
 
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [u1_sym[0]+u2_sym[0]-self.u_min_shared, self.u_max_shared-u1_sym[0]-u2_sym[0], u1_sym[1]+u2_sym[1]-self.u_min_shared, self.u_max_shared-u2_sym[1]-u1_sym[1]])
+        x1_sym = x_sym[:self.nx1]
+        x2_sym = x_sym[self.nx1:self.nx1+self.nx2]
         if self.is_single_integrator:
-            x1_sym = x_sym[:self.nx1]
-            x2_sym = x_sym[self.nx1:self.nx1+self.nx2]
             v1_sym = u1_sym
             v2_sym = u2_sym
-        else:
-            x1_sym = x_sym[:self.nx1]
-            x2_sym = x_sym[self.nx1:self.nx1+self.nx2]
+        elif not self.is_unicycle:
             v1_sym = x_sym[2:4]
             v2_sym = x_sym[self.nx1+2:self.nx1+4]
         
@@ -113,6 +125,23 @@ class GameDynamics:
                                                                      self.x_max-x1_sym[0], 
                                                                      x1_sym[1]-self.y_min, 
                                                                      self.y_max-x1_sym[1]])
+        elif self.is_unicycle:
+            self.f_private = ca.Function(
+                'f_private', [x1_sym, u1_sym], [
+                    x1_sym[0] - self.x_min,
+                    self.x_max - x1_sym[0],
+                    x1_sym[1] - self.y_min,
+                    self.y_max - x1_sym[1],
+                    x1_sym[2],
+                    self.v_max - x1_sym[2],
+                    u1_sym[0] + self.a_max,
+                    self.a_max - u1_sym[0],
+                    u1_sym[1] + self.psi_dot_max,
+                    self.psi_dot_max - u1_sym[1],
+                    x1_sym[2] * u1_sym[1] + self.an_max,
+                    self.an_max - x1_sym[2] * u1_sym[1],
+                ],
+            )
         else:
             self.f_private = ca.Function('f_private', [x1_sym, u1_sym], [u1_sym[0]-self.u_min, 
                                                                         self.u_max-u1_sym[0], 
@@ -127,14 +156,16 @@ class GameDynamics:
                                                                         v1_sym[1]-self.vy_min,
                                                                         self.vy_max-v1_sym[1]])
         
-        velocities = []
-        for player, u_sym in enumerate(u_syms):
-            offset = player * self.nx1
-            velocities.append(u_sym if self.is_single_integrator
-                              else x_sym[offset + 2:offset + 4])
-        shared_constraints = [
-            4.5 * self.vy_max**2 - sum(ca.sumsqr(v) for v in velocities)
-        ]
+        shared_constraints = []
+        if not self.is_unicycle:
+            velocities = []
+            for player, u_sym in enumerate(u_syms):
+                offset = player * self.nx1
+                velocities.append(u_sym if self.is_single_integrator
+                                  else x_sym[offset + 2:offset + 4])
+            shared_constraints.append(
+                4.5 * self.vy_max**2 - sum(ca.sumsqr(v) for v in velocities)
+            )
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1
@@ -164,6 +195,10 @@ class GameDynamics:
     @property
     def is_single_integrator(self):
         return self.dynamics_type == 1
+
+    @property
+    def is_unicycle(self):
+        return self.dynamics_type == 3
 
     @staticmethod
     def _as_bounds(value, size, name):
@@ -233,6 +268,11 @@ class GameDynamics:
         Double integrator:
             State x = [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y]
             Input u = [a1x, a1y, a2x, a2y]
+
+        Unicycle (per player):
+            State x = [x, y, v, psi]
+            Input u = [a, psi_dot]
+            x_dot = [v*cos(psi), v*sin(psi), a, psi_dot]
         """
         casadi_types = (ca.SX, ca.MX, ca.DM)
         use_casadi = isinstance(x, casadi_types) or isinstance(u, casadi_types)
@@ -272,6 +312,19 @@ class GameDynamics:
 
         if self.is_single_integrator:
             components = [u[index] for index in range(u_size)]
+        elif self.is_unicycle:
+            components = []
+            for player in range(player_count):
+                x_offset = player * self.nx1
+                u_offset = player * self.nu1
+                speed = x[x_offset + 2]
+                heading = x[x_offset + 3]
+                components.extend([
+                    speed * ca.cos(heading) if use_casadi else speed * np.cos(heading),
+                    speed * ca.sin(heading) if use_casadi else speed * np.sin(heading),
+                    u[u_offset],
+                    u[u_offset + 1],
+                ])
         else:
             components = []
             for player in range(player_count):
@@ -306,34 +359,29 @@ class GameDynamics:
         self.u = u
 
         # Reject invalid controls before changing the internal state.
-        if np.any(u < self.u_min-self.eps) or np.any(u > self.u_max+self.eps):
+        if self.is_unicycle:
+            accelerations = u[0::2]
+            turn_rates = u[1::2]
+            speeds = self.x[2::self.nx1]
+            invalid_input = (
+                np.any(np.abs(accelerations) > self.a_max + self.eps)
+                or np.any(np.abs(turn_rates) > self.psi_dot_max + self.eps)
+                or np.any(np.abs(speeds * turn_rates) > self.an_max + self.eps)
+            )
+        else:
+            invalid_input = np.any(u < self.u_min-self.eps) or np.any(u > self.u_max+self.eps)
+        if invalid_input:
             self._log_history(u, self.INPUT_OUTSIDE_BOUNDS)
             return self.INPUT_OUTSIDE_BOUNDS
 
         x = self.x
         dt = self.dt
-        x_next = np.zeros_like(x)
-
-        # Classical fourth-order Runge-Kutta integration with constant input u.
-        # k1 = self.dynamics(x, u)
-        # k2 = self.dynamics(x + 0.5 * dt * k1, u)
-        # k3 = self.dynamics(x + 0.5 * dt * k2, u)
-        # k4 = self.dynamics(x + dt * k3, u)
-
-        # self.x = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        if self.is_single_integrator:
-            x_next = x + dt * u
-        else:
-            for player in range(self.n_players):
-                xi = player * self.nx1
-                ui = player * self.nu1
-                x_next[xi:xi + 2] = (
-                    x[xi:xi + 2] + dt * x[xi + 2:xi + 4]
-                    + 0.5 * dt**2 * u[ui:ui + 2]
-                )
-                x_next[xi + 2:xi + 4] = (
-                    x[xi + 2:xi + 4] + dt * u[ui:ui + 2]
-                )
+        # Classical RK4 integration supports both linear and nonlinear modes.
+        k1 = self.dynamics(x, u)
+        k2 = self.dynamics(x + 0.5 * dt * k1, u)
+        k3 = self.dynamics(x + 0.5 * dt * k2, u)
+        k4 = self.dynamics(x + dt * k3, u)
+        x_next = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
         self.x = x_next
         self.t += dt
 
@@ -350,7 +398,12 @@ class GameDynamics:
             self._log_history(u, self.POSITION_OUTSIDE_BOUNDS)
             return self.POSITION_OUTSIDE_BOUNDS
 
-        if not self.is_single_integrator:
+        if self.is_unicycle:
+            speeds = self.x[2::self.nx1]
+            if np.any(speeds < -self.eps) or np.any(speeds > self.v_max + self.eps):
+                self._log_history(u, self.VELOCITY_OUTSIDE_BOUNDS)
+                return self.VELOCITY_OUTSIDE_BOUNDS
+        elif not self.is_single_integrator:
             vxs = self.x[2::self.nx1]
             vys = self.x[3::self.nx1]
             if (
@@ -384,6 +437,38 @@ class GameDynamics:
         self.reset_history()
         self.iteration += 1
 
+    @staticmethod
+    def _wrap_angle(angle):
+        return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+    def _unicycle_goal_controller(
+        self, player, target, position_gain=0.75,
+        speed_gain=3.0, heading_gain=2.0,
+    ):
+        """Bounded point-tracking controller for the unicycle bootstrap."""
+        offset = player * self.nx1
+        state = self.x[offset:offset + self.nx1]
+        error = np.asarray(target, dtype=float).reshape(-1)[:2] - state[:2]
+        distance = np.linalg.norm(error)
+        if distance > 1e-8:
+            desired_heading = np.arctan2(error[1], error[0])
+        else:
+            desired_heading = np.asarray(target, dtype=float).reshape(-1)[3]
+        heading_error = self._wrap_angle(desired_heading - state[3])
+        desired_speed = min(self.v_max/2, position_gain * distance)
+        if abs(heading_error) > np.pi / 2:
+            desired_speed = 0.0
+        acceleration = np.clip(
+            speed_gain * (desired_speed - state[2]), -self.a_max, self.a_max
+        )
+        lateral_turn_limit = 0.75*self.an_max / max(abs(state[2]), 1e-6)
+        turn_rate = np.clip(
+            heading_gain * heading_error,
+            -min(self.psi_dot_max, lateral_turn_limit),
+            min(self.psi_dot_max, lateral_turn_limit),
+        )
+        return np.array([acceleration, turn_rate])
+
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 1.
 
@@ -392,6 +477,7 @@ class GameDynamics:
         velocity feedback to command acceleration.  In both cases the result
         respects player 1's input bounds.
         """
+        
         if (
             self.t < 1.5
             and (
@@ -404,10 +490,12 @@ class GameDynamics:
         ):
             target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
             target[0] -= 2.0
-            # velocity_gain = 1.0
-            # position_gain=10.0
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)
+        
+        if self.is_unicycle:
+            return self._unicycle_goal_controller(0, target)
+
         if target.shape != (self.nx1,):
             raise ValueError(
                 f"x1f must contain one player state with shape ({self.nx1},)"
@@ -449,21 +537,16 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        p2 = self.nx1
-        if (
-            self.t < 2.5
-            and (
-                self.is_single_integrator
-                or (
-                    abs(self.x[p2 + 3]) < self.vy_max - 0.5
-                    and abs(self.x[p2 + 2]) < self.vx_max - 0.5
-                )
-            )
-        ):
+        if self.t < 2.5:
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
             target[0] += 2.0
         else:
-            target = np.asarray(self.x2f, dtype=float).reshape(-1)
+            target = np.asarray(self.x2f, dtype=float).reshape(-1)        
+        
+        if self.is_unicycle:
+            return self._unicycle_goal_controller(1, target)
+        p2 = self.nx1
+
         if target.shape != (self.nx2,):
             raise ValueError(
                 f"x2f must contain one player state with shape ({self.nx2},)"
@@ -499,11 +582,7 @@ class GameDynamics:
 
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
-        if self.n_players < 3:
-            raise ValueError("player 3 is not part of this game")
-        offset = 2 * self.nx1
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        
         if (
             self.t < 2.0
             and (
@@ -515,6 +594,13 @@ class GameDynamics:
             )
         ):
             target[1] += 2.5
+        
+        if self.n_players < 3:
+            raise ValueError("player 3 is not part of this game")
+        if self.is_unicycle:
+            return self._unicycle_goal_controller(2, target)
+        offset = 2 * self.nx1
+
         
         position_error = target[:2] - self.x[offset:offset + 2]
         if np.linalg.norm(position_error) < 3*self.d_sep:

@@ -29,7 +29,7 @@ def load_learned_data(path="LearnedData.pkl"):
     return learned_data
 
 
-def player_state(px, py, vx=0.0, vy=0.0, dynamics_type=1):
+def player_state(px, py, vx=0.5, vy=0.0, dynamics_type=1):
     if dynamics_type == 1:
         return [px + 0.0 * np.random.normal(), py + 0.0 * np.random.normal()]
     return [px, py, vx, vy]
