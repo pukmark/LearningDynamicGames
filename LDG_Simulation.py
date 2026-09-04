@@ -29,6 +29,7 @@ W = 4.0
 dt = 0.1
 tf = 10.0
 dynamics_type = 3  # 1: single integrator, 2: double integrator, 3: unicycle
+v_min = 0.0
 v_max = 2.0
 a_max = 2.0
 psi_dot_max = 1.0  # rad/s
@@ -161,7 +162,8 @@ if __name__ == '__main__':
     
     Game = GameDynamics(
         dt, x0, x1f, x2f, x3f=x3f if player_count == 3 else None,
-        L=L, W=W, dynamics_type=dynamics_type, v_max=v_max, a_max=a_max,
+        L=L, W=W, dynamics_type=dynamics_type, v_min=v_min, v_max=v_max,
+        a_max=a_max,
         psi_dot_max=psi_dot_max, an_max=an_max,
         MaxIterations=Niterations,
     )

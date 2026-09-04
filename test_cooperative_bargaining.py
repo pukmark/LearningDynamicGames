@@ -475,6 +475,23 @@ class UnicycleDynamicsTests(unittest.TestCase):
             game.INPUT_OUTSIDE_BOUNDS,
         )
 
+    def test_unicycle_uses_configured_minimum_speed(self):
+        initial = np.array([0.0, 0.0, 0.6, 0.0, 1.0, 1.0, 0.6, np.pi])
+        game = GameDynamics(
+            0.1, initial, self.x1f, self.x2f, dynamics_type=3,
+            v_min=0.5, v_max=2.0,
+        )
+        game.reset_game()
+
+        private_constraints = np.asarray(
+            game.f_private(initial[:4], np.zeros(2))
+        ).reshape(-1)
+        self.assertAlmostEqual(private_constraints[4], 0.1)
+        self.assertEqual(
+            game.step(np.array([-2.0, 0.0, 0.0, 0.0])),
+            game.VELOCITY_OUTSIDE_BOUNDS,
+        )
+
     def test_solver_uses_nonlinear_unicycle_dynamics(self):
         game = GameDynamics(
             0.1,

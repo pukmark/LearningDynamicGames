@@ -28,6 +28,7 @@ class GameDynamics:
         vx_max=2,
         vy_min=-2,
         vy_max=2,
+        v_min=0.1,
         v_max=2.0,
         a_max=2.0,
         psi_dot_max=1.0,
@@ -79,13 +80,15 @@ class GameDynamics:
         self.vx_max = float(vx_max)
         self.vy_min = float(vy_min)
         self.vy_max = float(vy_max)
-        self.v_min = 0.0
+        self.v_min = float(v_min)
         self.v_max = float(v_max)
         self.a_max = float(a_max)
         self.psi_dot_max = float(psi_dot_max)
         self.an_max = float(an_max)
         if min(self.v_max, self.a_max, self.psi_dot_max, self.an_max) <= 0:
             raise ValueError("unicycle limits must be positive")
+        if self.v_min < 0 or self.v_min >= self.v_max:
+            raise ValueError("v_min must satisfy 0 <= v_min < v_max")
         
         # shared constranits data
         shared_f_limit = 1.25
@@ -132,7 +135,7 @@ class GameDynamics:
                     self.x_max - x1_sym[0],
                     x1_sym[1] - self.y_min,
                     self.y_max - x1_sym[1],
-                    x1_sym[2],
+                    x1_sym[2] - self.v_min,
                     self.v_max - x1_sym[2],
                     u1_sym[0] + self.a_max,
                     self.a_max - u1_sym[0],
@@ -400,7 +403,10 @@ class GameDynamics:
 
         if self.is_unicycle:
             speeds = self.x[2::self.nx1]
-            if np.any(speeds < -self.eps) or np.any(speeds > self.v_max + self.eps):
+            if (
+                np.any(speeds < self.v_min - self.eps)
+                or np.any(speeds > self.v_max + self.eps)
+            ):
                 self._log_history(u, self.VELOCITY_OUTSIDE_BOUNDS)
                 return self.VELOCITY_OUTSIDE_BOUNDS
         elif not self.is_single_integrator:
@@ -455,9 +461,11 @@ class GameDynamics:
         else:
             desired_heading = np.asarray(target, dtype=float).reshape(-1)[3]
         heading_error = self._wrap_angle(desired_heading - state[3])
-        desired_speed = min(self.v_max/2, position_gain * distance)
+        desired_speed = max(
+            self.v_min, min(self.v_max / 2, position_gain * distance)
+        )
         if abs(heading_error) > np.pi / 2:
-            desired_speed = 0.0
+            desired_speed = self.v_min
         acceleration = np.clip(
             speed_gain * (desired_speed - state[2]), -self.a_max, self.a_max
         )
