@@ -3,6 +3,6 @@ __pycache__/
 *.py[cod]
 Papers/
 backup/
-LearnedData.pkl
-LDG_Simulation.png
-LDG_Simulation.mp4
+/LearnedData.pkl
+/LDG_Simulation.png
+/LDG_Simulation.mp4
