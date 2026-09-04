@@ -520,7 +520,7 @@ class GameDynamics:
         if self.is_single_integrator:
             control = position_gain * position_error
         else:
-            velocity_error = target[2:4] - self.x[2:4]
+            velocity_error = -self.x[2:4]
             control = (
                 position_gain * position_error
                 + velocity_gain * velocity_error
@@ -571,7 +571,7 @@ class GameDynamics:
             control = position_gain * position_error
         else:
             velocity = self.x[p2 + 2:p2 + 4]
-            velocity_error = target[2:4] - velocity
+            velocity_error = -velocity
             control = position_gain * position_error + velocity_gain * velocity_error
 
             if np.linalg.norm(velocity) > self.vx_max - 1.0 and self.t >= 0.8:
