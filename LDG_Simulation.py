@@ -28,7 +28,7 @@ L = 5.0
 W = 4.0
 dt = 0.1
 tf = 15.0
-dynamics_type = 2  # 1: single integrator, 2: double integrator, 3: unicycle
+dynamics_type = 3  # 1: single integrator, 2: double integrator, 3: unicycle
 v_min = 0.1
 v_max = 2.0
 a_max = 2.0
@@ -60,7 +60,7 @@ x0_players = (
 alpha1, alpha2 = 0.5, 0.25
 
 max_workers = max(1, int(os.cpu_count() * 0.3))
-# max_workers = 1
+max_workers = 1
         
 
 if __name__ == '__main__':
