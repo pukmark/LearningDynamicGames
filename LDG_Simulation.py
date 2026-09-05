@@ -32,8 +32,7 @@ dynamics_type = 2  # 1: single integrator, 2: double integrator, 3: unicycle
 v_min = 0.1
 v_max = 2.0
 a_max = 2.0
-psi_dot_max = 1.0  # rad/s
-an_max = 1.0  # m/s^2, lateral acceleration |v * psi_dot|
+psi_max = np.pi  # rad, absolute heading input bound
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
 # state and the shared-constraint equilibrium weight. The selection can use
@@ -164,7 +163,7 @@ if __name__ == '__main__':
         dt, x0, x1f, x2f, x3f=x3f if player_count == 3 else None,
         L=L, W=W, dynamics_type=dynamics_type, v_min=v_min, v_max=v_max,
         a_max=a_max,
-        psi_dot_max=psi_dot_max, an_max=an_max,
+        psi_max=psi_max,
         MaxIterations=Niterations,
     )
     LearnedData = init_learned_data()

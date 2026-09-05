@@ -31,8 +31,7 @@ class GameDynamics:
         v_min=0.1,
         v_max=2.0,
         a_max=2.0,
-        psi_dot_max=1.0,
-        an_max=1.0,
+        psi_max=np.pi,
         d_sep=0.3,
         dynamics_type=3,
         MaxIterations=50,
@@ -47,7 +46,7 @@ class GameDynamics:
 
         self.dt = float(dt)
         self.dynamics_type = int(dynamics_type)
-        self.nx1 = 2 if self.is_single_integrator else 4
+        self.nx1 = {1: 2, 2: 4, 3: 3}[self.dynamics_type]
         self.nu1 = 2
         self.targets = [
             np.asarray(target, dtype=float).reshape(-1)
@@ -83,9 +82,8 @@ class GameDynamics:
         self.v_min = float(v_min)
         self.v_max = float(v_max)
         self.a_max = float(a_max)
-        self.psi_dot_max = float(psi_dot_max)
-        self.an_max = float(an_max)
-        if min(self.v_max, self.a_max, self.psi_dot_max, self.an_max) <= 0:
+        self.psi_max = float(psi_max)
+        if min(self.v_max, self.a_max, self.psi_max) <= 0:
             raise ValueError("unicycle limits must be positive")
         if self.v_min < 0 or self.v_min >= self.v_max:
             raise ValueError("v_min must satisfy 0 <= v_min < v_max")
@@ -139,10 +137,8 @@ class GameDynamics:
                     self.v_max - x1_sym[2],
                     u1_sym[0] + self.a_max,
                     self.a_max - u1_sym[0],
-                    u1_sym[1] + self.psi_dot_max,
-                    self.psi_dot_max - u1_sym[1],
-                    x1_sym[2] * u1_sym[1] + self.an_max,
-                    self.an_max - x1_sym[2] * u1_sym[1],
+                    u1_sym[1] + self.psi_max,
+                    self.psi_max - u1_sym[1],
                 ],
             )
         else:
@@ -183,7 +179,8 @@ class GameDynamics:
 
         # Dynamics Function:
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
-        # or [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y] for double-integrator mode.
+        # [px, py, vx, vy] per player for double-integrator mode,
+        # or [px, py, v] per player for unicycle mode.
         k1 = self.dynamics(x1_sym, u1_sym)
         k2 = self.dynamics(x1_sym + 0.5 * dt *k1, u1_sym)
         k3 = self.dynamics(x1_sym + 0.5 * dt * k2, u1_sym)
@@ -273,9 +270,9 @@ class GameDynamics:
             Input u = [a1x, a1y, a2x, a2y]
 
         Unicycle (per player):
-            State x = [x, y, v, psi]
-            Input u = [a, psi_dot]
-            x_dot = [v*cos(psi), v*sin(psi), a, psi_dot]
+            State x = [x, y, v]
+            Input u = [a, psi], with heading psi in radians
+            x_dot = [v*cos(psi), v*sin(psi), a]
         """
         casadi_types = (ca.SX, ca.MX, ca.DM)
         use_casadi = isinstance(x, casadi_types) or isinstance(u, casadi_types)
@@ -321,12 +318,11 @@ class GameDynamics:
                 x_offset = player * self.nx1
                 u_offset = player * self.nu1
                 speed = x[x_offset + 2]
-                heading = x[x_offset + 3]
+                heading = u[u_offset + 1]
                 components.extend([
                     speed * ca.cos(heading) if use_casadi else speed * np.cos(heading),
                     speed * ca.sin(heading) if use_casadi else speed * np.sin(heading),
                     u[u_offset],
-                    u[u_offset + 1],
                 ])
         else:
             components = []
@@ -364,12 +360,10 @@ class GameDynamics:
         # Reject invalid controls before changing the internal state.
         if self.is_unicycle:
             accelerations = u[0::2]
-            turn_rates = u[1::2]
-            speeds = self.x[2::self.nx1]
+            headings = u[1::2]
             invalid_input = (
                 np.any(np.abs(accelerations) > self.a_max + self.eps)
-                or np.any(np.abs(turn_rates) > self.psi_dot_max + self.eps)
-                or np.any(np.abs(speeds * turn_rates) > self.an_max + self.eps)
+                or np.any(np.abs(headings) > self.psi_max + self.eps)
             )
         else:
             invalid_input = np.any(u < self.u_min-self.eps) or np.any(u > self.u_max+self.eps)
@@ -443,13 +437,9 @@ class GameDynamics:
         self.reset_history()
         self.iteration += 1
 
-    @staticmethod
-    def _wrap_angle(angle):
-        return (angle + np.pi) % (2.0 * np.pi) - np.pi
-
     def _unicycle_goal_controller(
         self, player, target, position_gain=0.75,
-        speed_gain=3.0, heading_gain=2.0,
+        speed_gain=3.0,
     ):
         """Bounded point-tracking controller for the unicycle bootstrap."""
         offset = player * self.nx1
@@ -459,23 +449,15 @@ class GameDynamics:
         if distance > 1e-8:
             desired_heading = np.arctan2(error[1], error[0])
         else:
-            desired_heading = np.asarray(target, dtype=float).reshape(-1)[3]
-        heading_error = self._wrap_angle(desired_heading - state[3])
+            desired_heading = 0.0
         desired_speed = max(
             self.v_min, min(self.v_max / 2, position_gain * distance)
         )
-        if abs(heading_error) > np.pi / 2:
-            desired_speed = self.v_min
         acceleration = np.clip(
             speed_gain * (desired_speed - state[2]), -self.a_max, self.a_max
         )
-        lateral_turn_limit = 0.75*self.an_max / max(abs(state[2]), 1e-6)
-        turn_rate = np.clip(
-            heading_gain * heading_error,
-            -min(self.psi_dot_max, lateral_turn_limit),
-            min(self.psi_dot_max, lateral_turn_limit),
-        )
-        return np.array([acceleration, turn_rate])
+        heading = np.clip(desired_heading, -self.psi_max, self.psi_max)
+        return np.array([acceleration, heading])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 1.
@@ -490,6 +472,7 @@ class GameDynamics:
             self.t < 1.5
             and (
                 self.is_single_integrator
+                or self.is_unicycle
                 or (
                     abs(self.x[3]) < self.vy_max - 0.5
                     and abs(self.x[2]) < self.vx_max - 0.5
@@ -595,6 +578,7 @@ class GameDynamics:
             self.t < 2.0
             and (
                 self.is_single_integrator
+                or self.is_unicycle
                 or (
                     abs(self.x[3]) < self.vy_max - 0.5
                     and abs(self.x[2]) < self.vx_max - 0.5

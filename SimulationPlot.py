@@ -325,7 +325,7 @@ def plot_simulation_init(game):
     ax_xy.legend(loc="best", ncol=2)
 
     if game.is_unicycle:
-        input_x_label, input_y_label = "a", r"$\dot{\psi}$"
+        input_x_label, input_y_label = "a", r"$\psi$"
     else:
         input_label = "v" if game.is_single_integrator else "a"
         input_x_label, input_y_label = f"{input_label}x", f"{input_label}y"
@@ -341,8 +341,8 @@ def plot_simulation_init(game):
     if game.is_unicycle:
         ax_u.axhline(game.a_max, color="C4", linestyle=":", linewidth=1.5, label="Acceleration limits")
         ax_u.axhline(-game.a_max, color="C4", linestyle=":", linewidth=1.5)
-        ax_u.axhline(game.psi_dot_max, color="C5", linestyle=":", linewidth=1.5, label="Turn-rate limits")
-        ax_u.axhline(-game.psi_dot_max, color="C5", linestyle=":", linewidth=1.5)
+        ax_u.axhline(game.psi_max, color="C5", linestyle=":", linewidth=1.5, label="Heading limits")
+        ax_u.axhline(-game.psi_max, color="C5", linestyle=":", linewidth=1.5)
     else:
         ax_u.axhline(game.u_max_shared, color="C4", linestyle=":", linewidth=2, label="Shared input maximum")
         ax_u.axhline(game.u_min_shared, color="C4", linestyle=":", linewidth=2, label="Shared input minimum")
@@ -1029,8 +1029,8 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             if (
                 predicted_x1.ndim == 2
                 and predicted_x2.ndim == 2
-                and predicted_x1.shape[1] >= 4
-                and predicted_x2.shape[1] >= 4
+                and predicted_x1.shape[1] >= game.nx1
+                and predicted_x2.shape[1] >= game.nx2
             ):
                 p1_prediction_time = (
                     float(getattr(solution, "t", game.t))

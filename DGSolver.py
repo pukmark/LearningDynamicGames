@@ -483,7 +483,7 @@ class DGSolver:
         self.is_built = False
         self._sampled_solver_cache = {}
         
-        self.Qk = np.diag([1.0, 1.0]) if self.game.is_single_integrator else np.diag([1.0, 1.0, 0.1, 0.1])
+        self.Qk = np.diag([1.0, 1.0] + [0.1] * (self.game.nx1 - 2))
         self.R1 = R1
         self.R2 = R2
         self.p_tol = p_tol
@@ -492,13 +492,12 @@ class DGSolver:
         self.use_slack = False
         self.cost_tol = 1e-1
         
-        per_player_proximity = ([1.0, 1.0] if self.game.is_single_integrator
-                                else [1.0, 1.0, 5.0, 5.0])
+        per_player_proximity = [1.0, 1.0] + [5.0] * (self.game.nx1 - 2)
         self.proximity_Q = (1 / self.game.nx) * np.diag(
             per_player_proximity * self.game.n_players
         )
         per_player_dx = ([1e-3, 1e-3] if self.game.is_single_integrator
-                         else [1e-2, 1e-2, 1e-3, 1e-3])
+                         else [1e-2, 1e-2] + [1e-3] * (self.game.nx1 - 2))
         self.small_dx = np.asarray(per_player_dx * self.game.n_players)
         self.large_dx = 20 * self.small_dx
         self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
@@ -1090,6 +1089,9 @@ class DGSolver:
         return self.solver
 
     def _discrete_player_dynamics(self, nx):
+        if self.game.is_unicycle:
+            # Nonlinear propagation uses game.dynamics_fun instead of A/B.
+            return None, None
         if self.game.is_single_integrator:
             return np.eye(nx), self.dt * np.eye(nx)
 
@@ -1646,7 +1648,7 @@ class DGSolver:
             u1 = np.ones((self.N, self.game.nu1))
             if self.game.is_unicycle:
                 u1[:, 0] *= -self.game.a_max * 0.01
-                u1[:, 1] *= -self.game.psi_dot_max * 0.01
+                u1[:, 1] *= -self.game.psi_max * 0.01
             else:
                 u1[:,0] *= -self.game.u_max*0.01
                 u1[:,1] *= -self.game.u_max*0.01
@@ -1660,7 +1662,7 @@ class DGSolver:
             u2 = np.ones((self.N, self.game.nu2))
             if self.game.is_unicycle:
                 u2[:, 0] *= self.game.a_max * 0.01
-                u2[:, 1] *= self.game.psi_dot_max * 0.01
+                u2[:, 1] *= self.game.psi_max * 0.01
             else:
                 u2[:,0] *= self.game.u_max*0.01
                 u2[:,1] *= self.game.u_max*0.01
@@ -1913,7 +1915,7 @@ class DGSolver:
             if self.game.is_unicycle:
                 up = np.tile(
                     sign * 0.01 * np.array([
-                        self.game.a_max, self.game.psi_dot_max
+                        self.game.a_max, self.game.psi_max
                     ]),
                     (self.N, 1),
                 )

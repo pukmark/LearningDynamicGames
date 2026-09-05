@@ -30,8 +30,11 @@ def load_learned_data(path="LearnedData.pkl"):
 
 
 def player_state(px, py, vx=0.5, vy=0.0, dynamics_type=1):
+    """Build a player state; vx supplies scalar speed in unicycle mode."""
     if dynamics_type == 1:
         return [px + 0.0 * np.random.normal(), py + 0.0 * np.random.normal()]
+    if dynamics_type == 3:
+        return [px, py, vx]
     return [px, py, vx, vy]
 
 

@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
+import casadi as ca
 import numpy as np
 
 from DGSolver import (
@@ -14,6 +15,7 @@ from DGSolver import (
 from Game import GameDynamics
 from LDG_Simulation_aux import (
     init_learned_data,
+    player_state,
     rebuild_analyzed_data,
     remaining_cost_budget,
 )
@@ -445,46 +447,81 @@ class ThreePlayerGameTests(unittest.TestCase):
 
 class UnicycleDynamicsTests(unittest.TestCase):
     def setUp(self):
-        self.x1f = np.array([[2.0, 0.0, 0.0, 0.0]])
-        self.x2f = np.array([[-2.0, 0.0, 0.0, np.pi]])
+        self.x1f = np.array([[2.0, 0.0, 0.0]])
+        self.x2f = np.array([[-2.0, 0.0, 0.0]])
+        self.initial = np.array([0.0, 0.0, 1.0, 1.0, 1.0, 0.5])
 
-    def test_rk4_integrates_unicycle_state(self):
+    def test_rk4_integrates_acceleration_along_commanded_heading(self):
         game = GameDynamics(
-            0.1,
-            np.array([0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.5, np.pi]),
-            self.x1f, self.x2f, dynamics_type=3,
+            0.1, self.initial, self.x1f, self.x2f, dynamics_type=3,
         )
         game.reset_game()
-        self.assertEqual(game.step(np.array([1.0, 0.0, 0.0, 0.0])), game.STEP_OK)
-        np.testing.assert_allclose(game.x[:4], [0.105, 0.0, 1.1, 0.0], atol=1e-10)
+        heading = np.pi / 3
+        control = np.array([1.0, heading, 0.0, np.pi])
+        expected = np.array([
+            0.105 * np.cos(heading), 0.105 * np.sin(heading), 1.1,
+            0.95, 1.0, 0.5,
+        ])
+        self.assertEqual(game.step(control), game.STEP_OK)
+        np.testing.assert_allclose(game.x, expected, atol=1e-10)
+        np.testing.assert_allclose(
+            np.asarray(game.dynamics_fun(self.initial[:3], control[:2])).ravel(),
+            expected[:3], atol=1e-10,
+        )
+        # The next input changes direction immediately without a heading state.
+        self.assertEqual(game.step([0.0, -np.pi / 2, 0.0, 0.0]), game.STEP_OK)
+        np.testing.assert_allclose(game.x[:3], expected[:3] + [0.0, -0.11, 0.0])
+        self.assertEqual(game.get_history()['x'].shape, (3, 6))
 
-    def test_rejects_turn_rate_and_lateral_acceleration_violations(self):
-        initial = np.array([0.0, 0.0, 2.0, 0.0, 1.0, 1.0, 0.5, np.pi])
+    def test_numeric_and_symbolic_dynamics_for_three_players(self):
+        initial = np.r_[self.initial, [-1.0, -1.0, 0.8]]
         game = GameDynamics(
-            0.1, initial, self.x1f, self.x2f, dynamics_type=3,
-            psi_dot_max=1.0, an_max=1.0,
+            0.1, initial, self.x1f, self.x2f, [[1.0, -1.0, 0.0]],
+            dynamics_type=3, W=4.0,
+        )
+        control = np.array([0.2, 0.0, -0.1, np.pi / 2, 0.3, -np.pi / 2])
+        expected = [1.0, 0.0, 0.2, 0.0, 0.5, -0.1, 0.0, -0.8, 0.3]
+        np.testing.assert_allclose(game.dynamics(initial, control), expected, atol=1e-12)
+        for symbolic_type in (ca.SX, ca.MX):
+            x = symbolic_type.sym('x', 9)
+            u = symbolic_type.sym('u', 6)
+            dynamics = ca.Function('dynamics', [x, u], [game.dynamics(x, u)])
+            np.testing.assert_allclose(
+                np.asarray(dynamics(initial, control)).ravel(), expected, atol=1e-12,
+            )
+        game.reset_game()
+        self.assertEqual(game.step(control), game.STEP_OK)
+        self.assertEqual(game.x.shape, (9,))
+
+    def test_rejects_acceleration_and_heading_violations(self):
+        game = GameDynamics(
+            0.1, self.initial, self.x1f, self.x2f, dynamics_type=3,
+            psi_max=np.pi / 2,
         )
         game.reset_game()
-        self.assertEqual(
-            game.step(np.array([0.0, 0.6, 0.0, 0.0])),
-            game.INPUT_OUTSIDE_BOUNDS,
-        )
-        np.testing.assert_allclose(game.x, initial)
-        self.assertEqual(
-            game.step(np.array([0.0, 1.1, 0.0, 0.0])),
-            game.INPUT_OUTSIDE_BOUNDS,
-        )
+        for control in ([2.1, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, -1.7]):
+            with self.subTest(control=control):
+                self.assertEqual(game.step(control), game.INPUT_OUTSIDE_BOUNDS)
+                np.testing.assert_allclose(game.x, self.initial)
+                self.assertEqual(game.t, 0.0)
+                player = 0 if control[0] else 1
+                constraints = np.asarray(game.f_private(
+                    self.initial[3 * player:3 * player + 3],
+                    control[2 * player:2 * player + 2],
+                )).ravel()
+                self.assertLess(np.min(constraints), 0.0)
+        # Heading is an angle, so v * psi is not a lateral acceleration limit.
+        self.assertEqual(game.step([0.0, np.pi / 2, 0.0, 0.0]), game.STEP_OK)
 
     def test_unicycle_uses_configured_minimum_speed(self):
-        initial = np.array([0.0, 0.0, 0.6, 0.0, 1.0, 1.0, 0.6, np.pi])
+        initial = np.array([0.0, 0.0, 0.6, 1.0, 1.0, 0.6])
         game = GameDynamics(
             0.1, initial, self.x1f, self.x2f, dynamics_type=3,
             v_min=0.5, v_max=2.0,
         )
         game.reset_game()
-
         private_constraints = np.asarray(
-            game.f_private(initial[:4], np.zeros(2))
+            game.f_private(initial[:3], np.zeros(2))
         ).reshape(-1)
         self.assertAlmostEqual(private_constraints[4], 0.1)
         self.assertEqual(
@@ -492,16 +529,48 @@ class UnicycleDynamicsTests(unittest.TestCase):
             game.VELOCITY_OUTSIDE_BOUNDS,
         )
 
-    def test_solver_uses_nonlinear_unicycle_dynamics(self):
+    def test_state_helper_and_goal_controllers_use_three_states(self):
+        self.assertEqual(player_state(1.0, 2.0, 0.7, dynamics_type=3), [1.0, 2.0, 0.7])
         game = GameDynamics(
-            0.1,
-            np.array([0.0, 0.0, 0.5, 0.0, 1.0, 1.0, 0.5, np.pi]),
-            self.x1f, self.x2f, dynamics_type=3,
+            0.1, np.r_[self.initial, [-1.0, -1.0, 0.5]],
+            self.x1f, self.x2f, [[1.0, -1.0, 0.0]], dynamics_type=3,
         )
-        solver = DGSolver(game, self.x1f, self.x2f, horizon=2)
-        backend = solver.build_solver()
-        self.assertEqual(backend.params["dynamics_type"], 3)
-        self.assertGreater(backend.J.nnz_out(0), 0)
+        game.reset_game()
+        game.t = 3.0  # Track the final targets after the bootstrap waypoints.
+        for player, controller in enumerate((
+            game.SimpleController1, game.SimpleController2, game.SimpleController3,
+        )):
+            control = controller()
+            error = game.targets[player][:2] - game.x[3 * player:3 * player + 2]
+            self.assertAlmostEqual(control[1], np.arctan2(error[1], error[0]))
+            self.assertLessEqual(abs(control[0]), game.a_max)
+        # No target heading is needed when already at the target position.
+        game.x[:2] = game.targets[0][:2]
+        self.assertTrue(np.all(np.isfinite(game.SimpleController1())))
+
+    def test_solver_uses_nonlinear_unicycle_dynamics(self):
+        for players in (2, 3):
+            with self.subTest(players=players):
+                third_target = np.array([[1.0, -1.0, 0.0]]) if players == 3 else None
+                initial = (np.r_[self.initial, [-1.0, -1.0, 0.5]]
+                           if players == 3 else self.initial)
+                game = GameDynamics(
+                    0.1, initial, self.x1f, self.x2f, third_target, dynamics_type=3,
+                )
+                solver = DGSolver(
+                    game, self.x1f, self.x2f, third_target, horizon=2,
+                    cooperative=players == 3,
+                )
+                backend = solver.build_solver()
+                self.assertEqual(backend.params['dynamics_type'], 3)
+                self.assertEqual(backend.params['nx'], 3 * players)
+                self.assertEqual(solver.Qk.shape, (3, 3))
+                self.assertEqual(solver.proximity_Q.shape, (3 * players, 3 * players))
+                self.assertGreater(backend.J.nnz_out(0), 0)
+                next_state = solver._player_next_state(initial[:3], [0.0, np.pi / 2])
+                np.testing.assert_allclose(
+                    np.asarray(next_state).ravel(), [0.0, 0.1, 1.0], atol=1e-12,
+                )
 
 
 if __name__ == "__main__":
