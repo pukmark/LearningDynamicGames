@@ -452,7 +452,7 @@ class GameDynamics:
             desired_heading = 0.0
         desired_speed = max(self.v_min, min(self.v_max / 2, position_gain * distance))
         acceleration = np.clip(
-            speed_gain * (desired_speed - state[2]), -self.a_max, self.a_max
+            speed_gain * (desired_speed - state[2]), -self.a_max*0.6, self.a_max*0.6
         )
         heading = np.clip(desired_heading, -self.psi_max, self.psi_max)
         return np.array([acceleration, heading])
