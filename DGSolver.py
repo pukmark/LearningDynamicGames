@@ -1960,6 +1960,7 @@ class DGSolver:
                         lower <= upper, np.clip(acceleration, lower, upper),
                         np.clip(acceleration, u_min, u_max),
                     )
+                up[k] = np.clip(up[k], -0.01, 0.01)
                 xp[k + 1] = np.asarray(
                     self._player_next_state(xp[k], up[k], A, B)
                 ).reshape(-1)
