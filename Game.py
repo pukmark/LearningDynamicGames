@@ -452,7 +452,7 @@ class GameDynamics:
             desired_heading = 0.0
         desired_speed = max(self.v_min, min(self.v_max / 2, position_gain * distance))
         acceleration = np.clip(
-            speed_gain * (desired_speed - state[2]), -self.a_max*0.6, self.a_max*0.6
+            speed_gain * (desired_speed - state[2]), -self.a_max*0.33, self.a_max*0.33
         )
         heading = np.clip(desired_heading, -self.psi_max, self.psi_max)
         return np.array([acceleration, heading])
@@ -467,7 +467,7 @@ class GameDynamics:
         """
         
         if (
-            self.t < 1.7
+            self.t < 2.2
             and (
                 self.is_single_integrator
                 or self.is_unicycle
@@ -526,7 +526,7 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        if self.t < 2.7:
+        if self.t < 2.8:
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
             target[0] += 2.0
         else:
