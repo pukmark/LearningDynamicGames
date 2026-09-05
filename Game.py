@@ -467,7 +467,7 @@ class GameDynamics:
         """
         
         if (
-            self.t < 1.5
+            self.t < 1.7
             and (
                 self.is_single_integrator
                 or self.is_unicycle
@@ -526,7 +526,7 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        if self.t < 2.3:
+        if self.t < 2.7:
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
             target[0] += 2.0
         else:
