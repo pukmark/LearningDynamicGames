@@ -450,9 +450,7 @@ class GameDynamics:
             desired_heading = np.arctan2(error[1], error[0])
         else:
             desired_heading = 0.0
-        desired_speed = max(
-            self.v_min, min(self.v_max / 2, position_gain * distance)
-        )
+        desired_speed = max(self.v_min, min(self.v_max / 2, position_gain * distance))
         acceleration = np.clip(
             speed_gain * (desired_speed - state[2]), -self.a_max, self.a_max
         )
