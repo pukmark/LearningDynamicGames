@@ -66,8 +66,9 @@ max_workers = max(1, int(os.cpu_count() * 0.3))
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the learning dynamic-game simulation.")
     parser.add_argument(
-        "--players", type=int, choices=(2, 3), default=3,
-        help="number of players in the game (default: 2)",
+        "--players", type=int, choices=(2, 3),
+        default=2 if dynamics_type == 3 else 3,
+        help="number of players (default: 2 for unicycle, 3 for integrators)",
     )
     parser.add_argument(
         "--cooperative", action="store_true",
@@ -192,7 +193,7 @@ if __name__ == '__main__':
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
             alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-            horizon=10,
+            horizon=6,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             max_workers=max_workers,
             cooperative=cooperative,
