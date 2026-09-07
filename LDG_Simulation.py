@@ -187,6 +187,7 @@ if __name__ == '__main__':
     # process and persistent terminal workers are reused by every iteration.
     initialize_pathsolver_runtime(max_workers=max_workers)
 
+    iteration_paths = []
     for iter in range(Game.Max_Iterations):
         Game.reset_game()
         Solver1 = DGSolver(
@@ -396,6 +397,15 @@ if __name__ == '__main__':
         if GameFlag is Game.STEP_OK:
             append_terminal_learned_state(LearnedData, Game, iter)
         
+        iteration_costs = [current_cost1, current_cost2]
+        if player_count == 3:
+            iteration_costs.append(current_cost3)
+        iteration_figure_path = save_iteration_figure(
+            Game, iteration_paths, iteration_costs,
+        )
+        iteration_paths.append(Game.get_history()["x"].copy())
+        print(f"Saved iteration figure to {iteration_figure_path}")
+
         if EndGame and GameFlag is not Game.STEP_OK:
             exception_message = (
                 f"Game ended with an infeasible step at time {Game.t:2.2f} "

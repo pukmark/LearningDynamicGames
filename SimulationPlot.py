@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from matplotlib.patches import Circle, Patch
+from matplotlib.figure import Figure
 from pathlib import Path
 
 eps = 1e-1
@@ -152,6 +153,62 @@ def save_simulation_figure(path="LDG_Simulation.png"):
     figure.canvas.draw()
     figure.savefig(path, dpi=300, bbox_inches="tight")
     return path
+
+
+def save_iteration_figure(
+    game, previous_paths, player_costs, directory="Results/iterations",
+    previous_alpha=0.12,
+):
+    """Save the current XY history, faded earlier paths, and accumulated costs.
+
+    ``previous_paths`` contains full-game state arrays, one per earlier
+    iteration. Costs include all executed stage costs and the terminal cost.
+    This standalone figure does not change the live plot or movie state.
+    """
+    current_path = np.asarray(game.get_history()["x"], dtype=float)
+    costs = np.asarray(player_costs, dtype=float).reshape(-1)
+    if costs.shape != (game.n_players,):
+        raise ValueError("player_costs must contain one cost per player")
+    paths = [np.asarray(path, dtype=float) for path in previous_paths]
+    for path in [*paths, current_path]:
+        if path.ndim != 2 or path.shape[1] != game.nx or len(path) == 0:
+            raise ValueError(f"each path must be a nonempty state array with {game.nx} columns")
+    if not 0.0 <= previous_alpha <= 1.0:
+        raise ValueError("previous_alpha must be between 0 and 1")
+
+    output_path = Path(directory) / f"iteration_{game.iteration:03d}.png"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Construct directly to avoid opening a window during an interactive run.
+    figure = Figure(figsize=(8, 6))
+    ax = figure.subplots()
+    for player in range(game.n_players):
+        offset = player * game.nx1
+        color = f"C{player}"
+        for path in paths:
+            ax.plot(path[:, offset], path[:, offset + 1], color=color,
+                    linewidth=1.0, alpha=previous_alpha, zorder=1)
+        ax.plot(current_path[:, offset], current_path[:, offset + 1],
+                color=color, linewidth=2.0, label=f"P{player + 1}", zorder=3)
+        ax.plot(current_path[-1, offset], current_path[-1, offset + 1],
+                marker="o", color=color, markersize=5, zorder=4)
+    ax.set_xlim(game.x_min - eps, game.x_max + eps)
+    ax.set_ylim(game.y_min - eps, game.y_max + eps)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("x position")
+    ax.set_ylabel("y position")
+    ax.set_title(f"XY paths — Iteration {game.iteration}")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="best", ncol=game.n_players, frameon=False, fontsize=9)
+    figure.subplots_adjust(left=0.11, right=0.96, top=0.91, bottom=0.23)
+    figure.text(
+        0.96, 0.04,
+        "Current cost\n" + "\n".join(
+            f"P{player + 1}: {cost:.2f}" for player, cost in enumerate(costs)
+        ),
+        ha="right", va="bottom", fontsize=10,
+    )
+    figure.savefig(output_path, dpi=300)
+    return output_path
 
 
 def start_simulation_movie(path="LDG_Simulation.mp4", fps=10, dpi=100):
