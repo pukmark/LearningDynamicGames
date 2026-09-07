@@ -1604,6 +1604,7 @@ class DGSolver:
         elif self.LearnedData is not None:
             alpha_vec[0] = np.clip(1.0-proximity_factor, 0.1, 1.0)
         
+        LearnedData1 = None
         if not self.is_built and self.LearnedData is None and u2_Learned is None:
             self.Solver = self.build_solver(u2_0 = None, Terminal_Safe_Set=None)
         if terminal_learned_data is not None:
@@ -1688,6 +1689,18 @@ class DGSolver:
                 self._player_next_state(x2[k, :], u2[k, :], self.A2, self.B2)
             ).reshape(-1)
             
+        backup_guess = None
+        if u1_0 is None and u2_0 is None:
+            backup_guess = self._backup_initial_guess(
+                x0, LearnedData1.AnalyzedData if LearnedData1 is not None else None,
+            )
+        if backup_guess is not None:
+            backup_states, backup_controls = backup_guess
+            x1 = backup_states[:, :self.game.nx1]
+            x2 = backup_states[:, self.game.nx1:]
+            u1 = backup_controls[:, :self.game.nu1]
+            u2 = backup_controls[:, self.game.nu1:]
+
         ai_xf_vec = np.zeros((ai_len,1))
         x1f_slack = np.zeros((x1f_slack_len,1))
         x2f_slack = np.zeros((x2f_slack_len,1))
@@ -1912,58 +1925,64 @@ class DGSolver:
             if len(terminal_states) == 1:
                 guess_targets = terminal_states[0].reshape(self.game.n_players, self.game.nx1)
 
+        backup_guess = self._backup_initial_guess(x0, terminal)
         initial_parts = []
         for player, lengths in enumerate(self.Solver.Z_len[:self.game.n_players]):
             x_len, u_len, ai_len, slack_len = lengths
-            target = guess_targets[player]
-            up = np.zeros((self.N, self.game.nu1))
-            xp = np.zeros((self.N + 1, self.game.nx1))
-            xp[0] = x0s[player].ravel()
-            A, B = self.A_players[player], self.B_players[player]
-            if not self.game.is_unicycle:
-                control_slice = slice(player * self.game.nu1, (player + 1) * self.game.nu1)
-                u_min = self.game._as_bounds(self.game.u_min, self.game.nu, 'u_min')[control_slice]
-                u_max = self.game._as_bounds(self.game.u_max, self.game.nu, 'u_max')[control_slice]
+            if backup_guess is not None:
+                backup_states, backup_controls = backup_guess
+                xp = backup_states[:, player * self.game.nx1:(player + 1) * self.game.nx1]
+                up = backup_controls[:, player * self.game.nu1:(player + 1) * self.game.nu1]
+            else:
+                target = guess_targets[player]
+                up = np.zeros((self.N, self.game.nu1))
+                xp = np.zeros((self.N + 1, self.game.nx1))
+                xp[0] = x0s[player].ravel()
+                A, B = self.A_players[player], self.B_players[player]
+                if not self.game.is_unicycle:
+                    control_slice = slice(player * self.game.nu1, (player + 1) * self.game.nu1)
+                    u_min = self.game._as_bounds(self.game.u_min, self.game.nu, 'u_min')[control_slice]
+                    u_max = self.game._as_bounds(self.game.u_max, self.game.nu, 'u_max')[control_slice]
 
-            for k in range(self.N):
-                error = target[:2] - xp[k, :2]
-                remaining_time = (self.N - k) * self.dt
-                if self.game.is_unicycle:
-                    distance = np.linalg.norm(error)
-                    heading = (np.arctan2(error[1], error[0]) if distance > 1e-8
-                               else up[k - 1, 1] if k else 0.0)
-                    # Limit cruising speed and begin braking near the target.
-                    braking_speed = np.sqrt(max(target[2], 0.0)**2
-                                            + 2.0 * self.game.a_max * distance)
-                    desired_speed = np.clip(
-                        min(distance / remaining_time, braking_speed),
-                        self.game.v_min, self.game.v_max,
-                    )
-                    # dynamics_fun integrates over game.dt for the unicycle.
-                    acceleration = (desired_speed - xp[k, 2]) / self.game.dt
-                    up[k] = [np.clip(acceleration, -self.game.a_max, self.game.a_max),
-                             np.clip(heading, -self.game.psi_max, self.game.psi_max)]
-                elif self.game.is_single_integrator:
-                    up[k] = np.clip(error / remaining_time, u_min, u_max)
-                else:
-                    # First acceleration of a cubic trajectory matching the
-                    # target position and velocity over the remaining horizon.
-                    acceleration = (6.0 * error / remaining_time**2
-                                    - (4.0 * xp[k, 2:] + 2.0 * target[2:]) / remaining_time)
-                    velocity_min = np.array([self.game.vx_min, self.game.vy_min])
-                    velocity_max = np.array([self.game.vx_max, self.game.vy_max])
-                    lower = np.maximum(u_min, (velocity_min - xp[k, 2:]) / self.dt)
-                    upper = np.minimum(u_max, (velocity_max - xp[k, 2:]) / self.dt)
-                    # If already outside recoverable speed bounds, retain the
-                    # actuator limits while steering back toward the target.
-                    up[k] = np.where(
-                        lower <= upper, np.clip(acceleration, lower, upper),
-                        np.clip(acceleration, u_min, u_max),
-                    )
-                # up[k] = np.clip(up[k], -0.01, 0.01)
-                xp[k + 1] = np.asarray(
-                    self._player_next_state(xp[k], up[k], A, B)
-                ).reshape(-1)
+                for k in range(self.N):
+                    error = target[:2] - xp[k, :2]
+                    remaining_time = (self.N - k) * self.dt
+                    if self.game.is_unicycle:
+                        distance = np.linalg.norm(error)
+                        heading = (np.arctan2(error[1], error[0]) if distance > 1e-8
+                                   else up[k - 1, 1] if k else 0.0)
+                        # Limit cruising speed and begin braking near the target.
+                        braking_speed = np.sqrt(max(target[2], 0.0)**2
+                                                + 2.0 * self.game.a_max * distance)
+                        desired_speed = np.clip(
+                            min(distance / remaining_time, braking_speed),
+                            self.game.v_min, self.game.v_max,
+                        )
+                        # dynamics_fun integrates over game.dt for the unicycle.
+                        acceleration = (desired_speed - xp[k, 2]) / self.game.dt
+                        up[k] = [np.clip(acceleration, -self.game.a_max, self.game.a_max),
+                                 np.clip(heading, -self.game.psi_max, self.game.psi_max)]
+                    elif self.game.is_single_integrator:
+                        up[k] = np.clip(error / remaining_time, u_min, u_max)
+                    else:
+                        # First acceleration of a cubic trajectory matching the
+                        # target position and velocity over the remaining horizon.
+                        acceleration = (6.0 * error / remaining_time**2
+                                        - (4.0 * xp[k, 2:] + 2.0 * target[2:]) / remaining_time)
+                        velocity_min = np.array([self.game.vx_min, self.game.vy_min])
+                        velocity_max = np.array([self.game.vx_max, self.game.vy_max])
+                        lower = np.maximum(u_min, (velocity_min - xp[k, 2:]) / self.dt)
+                        upper = np.minimum(u_max, (velocity_max - xp[k, 2:]) / self.dt)
+                        # If already outside recoverable speed bounds, retain the
+                        # actuator limits while steering back toward the target.
+                        up[k] = np.where(
+                            lower <= upper, np.clip(acceleration, lower, upper),
+                            np.clip(acceleration, u_min, u_max),
+                        )
+                    # up[k] = np.clip(up[k], -0.01, 0.01)
+                    xp[k + 1] = np.asarray(
+                        self._player_next_state(xp[k], up[k], A, B)
+                    ).reshape(-1)
             initial_parts.extend([
                 xp.reshape(x_len, order='F'), up.reshape(u_len, order='F'),
                 np.zeros(ai_len), np.zeros(slack_len),
@@ -2420,16 +2439,10 @@ class DGSolver:
         backup.indx = 0
         self.backup = backup
     
-    def backup_controller(self, x):
-        """Return the safe stored control closest to the current state.
-
-        Only the unexecuted portion of the trajectory is searched.  This
-        prevents a self-intersecting backup trajectory from moving its index
-        backward and replaying controls that have already been applied.
-        """
+    def _backup_horizon(self, x):
+        """Copy the forward backup horizon without changing controller state."""
         if not hasattr(self, "backup"):
             raise RuntimeError("backup controller has not been initialized")
-        player_count = getattr(self.game, "n_players", 2)
 
         state = np.asarray(x, dtype=float).reshape(-1)
         states = np.asarray(self.backup.x, dtype=float)
@@ -2463,33 +2476,55 @@ class DGSolver:
         distances = np.einsum("ij,jk,ik->i", errors, state_weight, errors)
         backup_index = first_index + int(np.argmin(distances))
 
+        state_stop = min(backup_index + self.N + 1, states.shape[0])
+        control_stop = min(backup_index + self.N, controls.shape[0])
+        remaining_states = states[backup_index:state_stop].copy()
+        remaining_controls = controls[backup_index:control_stop].copy()
+
+        if remaining_states.shape[0] < self.N + 1:
+            state_padding = np.repeat(
+                states[-1][None, :],
+                self.N + 1 - remaining_states.shape[0],
+                axis=0,
+            )
+            remaining_states = np.concatenate(
+                (remaining_states, state_padding), axis=0
+            )
+        if remaining_controls.shape[0] < self.N:
+            control_padding = np.repeat(
+                controls[-1][None, :],
+                self.N - remaining_controls.shape[0],
+                axis=0,
+            )
+            remaining_controls = np.concatenate(
+                (remaining_controls, control_padding), axis=0
+            )
+
+        return backup_index, float(times[backup_index]), remaining_states, remaining_controls
+
+    def _backup_initial_guess(self, x0, terminal_safe_set):
+        """Reuse backup states/inputs when their full terminal state matches."""
+        if not hasattr(self, "backup") or terminal_safe_set is None:
+            return None
+        terminal_states = np.asarray(terminal_safe_set.state, dtype=float)
+        if terminal_states.shape != (1, self.game.nx):
+            return None
+        _, _, states, controls = self._backup_horizon(x0)
+        if not np.allclose(states[-1], terminal_states[0], rtol=1e-7, atol=1e-9):
+            return None
+        # Keep the initial-state equality exact even when the closest stored
+        # state differs slightly from the current measurement.
+        states[0] = x0
+        return states, controls
+
+    def backup_controller(self, x):
+        """Return the stored control closest to x without rewinding the backup."""
+        state = np.asarray(x, dtype=float).reshape(-1)
+        player_count = getattr(self.game, "n_players", 2)
+        backup_index, backup_time, remaining_states, remaining_controls = self._backup_horizon(state)
         self.backup.indx = backup_index
         if hasattr(self, "Solution"):
-            state_stop = min(backup_index + self.N + 1, states.shape[0])
-            control_stop = min(backup_index + self.N, controls.shape[0])
-            remaining_states = states[backup_index:state_stop].copy()
-            remaining_controls = controls[backup_index:control_stop].copy()
-
-            if remaining_states.shape[0] < self.N + 1:
-                state_padding = np.repeat(
-                    states[-1][None, :],
-                    self.N + 1 - remaining_states.shape[0],
-                    axis=0,
-                )
-                remaining_states = np.concatenate(
-                    (remaining_states, state_padding), axis=0
-                )
-            if remaining_controls.shape[0] < self.N:
-                control_padding = np.repeat(
-                    controls[-1][None, :],
-                    self.N - remaining_controls.shape[0],
-                    axis=0,
-                )
-                remaining_controls = np.concatenate(
-                    (remaining_controls, control_padding), axis=0
-                )
-
-            self.Solution.t = float(times[backup_index])
+            self.Solution.t = backup_time
             self.Solution.x0 = state.copy()
             for player in range(player_count):
                 xs = slice(player * self.game.nx1, (player + 1) * self.game.nx1)
@@ -2504,6 +2539,6 @@ class DGSolver:
             self.Solution.backup_index = backup_index
             self.Solution.terminal_sample_state = remaining_states[-1].copy()
             self.Solution.terminal_sample_time = float(
-                times[backup_index] + self.N * self.dt
+                backup_time + self.N * self.dt
             )
-        return controls[backup_index].copy()
+        return remaining_controls[0].copy()
