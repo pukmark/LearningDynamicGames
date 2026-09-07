@@ -45,7 +45,7 @@ def solution_has_no_interaction(solution, tolerance=1e-8):
     return sigma.size == 0 or np.all(np.abs(sigma) <= tolerance)
 
 
-NASH_IMPROVEMENT_EPSILON = 1e-8
+NASH_IMPROVEMENT_EPSILON = 1e-6
 
 
 def _nash_product(improvements):
