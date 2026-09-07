@@ -16,7 +16,7 @@ def _cost_label_indices(iteration_count, maximum_groups=6):
 
 
 def _label_cost_bars(ax, bars, visible_indices=None):
-    """Add compact vertical labels to selected bars in a container."""
+    """Add compact horizontal labels to selected bars in a container."""
     labels = []
     for index, bar in enumerate(bars):
         if visible_indices is not None and index not in visible_indices:
@@ -24,7 +24,7 @@ def _label_cost_bars(ax, bars, visible_indices=None):
             continue
         labels.append(f"{bar.get_height():.2f}".rstrip("0").rstrip("."))
     return ax.bar_label(
-        bars, labels=labels, padding=2, fontsize=7, rotation=90,
+        bars, labels=labels, padding=2, fontsize=7, rotation=0,
     )
 
 
@@ -322,7 +322,11 @@ def plot_simulation_init(game):
     ax_xy.set_ylabel("y position")
     ax_xy.set_title(f"XY trajectory - Iteration: {game.iteration}")
     ax_xy.grid(True, alpha=0.3)
-    ax_xy.legend(loc="best", ncol=2)
+    ax_xy.legend(
+        handles=[lines[f"p{player + 1}_state"] for player in range(game.n_players)],
+        labels=[f"P{player + 1}" for player in range(game.n_players)],
+        loc="best", ncol=game.n_players, frameon=False, fontsize=8,
+    )
 
     if game.is_unicycle:
         input_x_label, input_y_label = "a", r"$\psi$"
@@ -386,17 +390,11 @@ def plot_simulation_init(game):
     ax_cost.set_title("Player total cost-to-go by iteration")
     ax_cost.grid(True, axis="y", alpha=0.3)
     ax_cost.legend(
-        handles=tuple([
-            Patch(facecolor="C0", label="P1 completed"),
-            Patch(facecolor="C1", label="P2 completed"),
-            *([Patch(facecolor="C2", label="P3 completed")]
-              if game.n_players == 3 else []),
-            Patch(facecolor="C4", label="P1 current predicted"),
-            Patch(facecolor="C5", label="P2 current predicted"),
-            *([Patch(facecolor="C6", label="P3 current predicted")]
-              if game.n_players == 3 else []),
-        ]),
-        loc="best", ncol=3,
+        handles=[
+            Patch(facecolor="0.6", label="Completed"),
+            Patch(facecolor="0.6", hatch="//", alpha=0.6, label="Predicted"),
+        ],
+        loc="best", ncol=2, frameon=False, fontsize=8,
     )
     lines["player_distance"], = ax_distance.plot(
         [], [], "C0-", linewidth=2, label="P1-P2 distance"
@@ -873,7 +871,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             predicted_p1_bars = ax_cost.bar(
                 [predicted_cost1[0] + (-bar_width if game.n_players == 3 else -bar_width / 2)],
                 [predicted_cost1[1]],
-                color="C4",
+                color="C0", hatch="//", alpha=0.6,
                 width=bar_width,
             )
             state["cost_bars"].append(predicted_p1_bars)
@@ -882,7 +880,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
             predicted_p2_bars = ax_cost.bar(
                 [predicted_cost2[0] + (0.0 if game.n_players == 3 else bar_width / 2)],
                 [predicted_cost2[1]],
-                color="C5",
+                color="C1", hatch="//", alpha=0.6,
                 width=bar_width,
             )
             state["cost_bars"].append(predicted_p2_bars)
@@ -890,7 +888,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         if predicted_cost3 is not None:
             predicted_p3_bars = ax_cost.bar(
                 [predicted_cost3[0] + bar_width], [predicted_cost3[1]],
-                color="C6", width=bar_width,
+                color="C2", hatch="//", alpha=0.6, width=bar_width,
             )
             state["cost_bars"].append(predicted_p3_bars)
             predicted_bar_containers.append(predicted_p3_bars)

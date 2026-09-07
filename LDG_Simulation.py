@@ -39,8 +39,8 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-bargaining_gamma1 = np.array([0.333, 0.4, 0.2, 0.4])
-bargaining_gamma2 = np.array([0.333, 0.2, 0.4, 0.4])
+bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4])
+bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
@@ -57,7 +57,7 @@ x0_players = (
     player_state(-0.5, -2.0, dynamics_type=dynamics_type),
     player_state(1.75, 1.5, dynamics_type=dynamics_type),
 )
-alpha1, alpha2 = 0.5, 0.25
+alpha1, alpha2 = 1/3.0, 1/3.0
 
 max_workers = max(1, int(os.cpu_count() * 0.3))
 # max_workers = 1
