@@ -39,8 +39,8 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-bargaining_gamma1 = np.array([0.333, 0.4, 0.2])
-bargaining_gamma2 = np.array([0.333, 0.2, 0.4])
+bargaining_gamma1 = np.array([0.333, 0.4, 0.2, 0.4])
+bargaining_gamma2 = np.array([0.333, 0.2, 0.4, 0.4])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the learning dynamic-game simulation.")
     parser.add_argument(
         "--players", type=int, choices=(2, 3),
-        default=2 if dynamics_type == 3 else 3,
+        default=3 if dynamics_type == 3 else 3,
         help="number of players (default: 2 for unicycle, 3 for integrators)",
     )
     parser.add_argument(
