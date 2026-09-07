@@ -218,8 +218,11 @@ def _record_simulation_movie_frame(state):
 def plot_simulation_init(game):
     plt.ion()
     plot_rows = 4 if game.is_single_integrator else 5
-    fig = plt.figure(figsize=(13, 12 if game.is_single_integrator else 14))
-    gs = fig.add_gridspec(plot_rows, 2, width_ratios=(2.0, 1.0))
+    fig = plt.figure(figsize=(13, 13.5 if game.is_single_integrator else 15.5))
+    gs = fig.add_gridspec(
+        plot_rows + 1, 2, width_ratios=(2.0, 1.0),
+        height_ratios=[1.0] * (plot_rows - 1) + [0.75, 1.0],
+    )
     ax_xy = fig.add_subplot(gs[:-1, 0])
     ax_u = fig.add_subplot(gs[0, 1])
     ax_cost = fig.add_subplot(gs[-1, :])
@@ -232,6 +235,8 @@ def plot_simulation_init(game):
         ax_distance = fig.add_subplot(gs[2, 1])
         ax_bargaining = fig.add_subplot(gs[3, 1])
     ax_nash_product = ax_bargaining.twinx()
+    ax_bargaining_text = fig.add_subplot(gs[-2, 1])
+    ax_bargaining_text.set_axis_off()
 
     lines = {}
     lines["p1_state"], = ax_xy.plot([], [], "C0-", label="P1 state")
@@ -437,10 +442,10 @@ def plot_simulation_init(game):
     lines["nash_product"], = ax_nash_product.plot(
         [], [], "C2--", linewidth=1.5, label=r"$\Delta_1\Delta_2$"
     )
-    bargaining_text = ax_bargaining.text(
-        0.02, 0.04, "No bargaining agreement yet",
-        transform=ax_bargaining.transAxes,
-        va="bottom", ha="left", fontsize=8, family="monospace",
+    bargaining_text = ax_bargaining_text.text(
+        0.02, 0.95, "No bargaining agreement yet",
+        transform=ax_bargaining_text.transAxes,
+        va="top", ha="left", fontsize=8, family="monospace",
         bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "alpha": 0.82},
     )
     ax_bargaining.set_xlabel("time")
@@ -957,7 +962,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     )
     ax_distance.relim()
     ax_distance.autoscale_view()
-    ax_distance.set_ylim(bottom=game.d_sep - 0.1, top=game.d_sep + 0.25)
+    ax_distance.set_ylim(bottom=game.d_sep - 0.1, top=game.d_sep + 1.0)
 
     if solution is not None and hasattr(solution, "x1"):
         lines["p1_prediction"].set_data(solution.x1[:, 0], solution.x1[:, 1])

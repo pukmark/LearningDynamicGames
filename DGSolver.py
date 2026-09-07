@@ -45,15 +45,24 @@ def solution_has_no_interaction(solution, tolerance=1e-8):
     return sigma.size == 0 or np.all(np.abs(sigma) <= tolerance)
 
 
+NASH_IMPROVEMENT_EPSILON = 1e-8
+
+
+def _nash_product(improvements):
+    """Keep every player's factor positive, including zero improvements."""
+    return float(np.prod(
+        np.maximum(np.asarray(improvements, dtype=float), 0.0)
+        + NASH_IMPROVEMENT_EPSILON
+    ))
+
+
 def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_tol = 1e-1):
     """Return the individually rational candidate with largest Nash product.
 
     Candidate tuples use the internal layout ``(z_index, gamma, C1, C2, ...)``.
     ``None`` is returned when the individually rational set is empty.
-
-    If one player cannot obtain a strictly positive improvement from any
-    acceptable agreement, the other player chooses its minimum-cost agreement.
-    This handles a zero Nash product without discarding useful cooperation.
+    Each nonnegative improvement receives a small epsilon so a player with
+    no remaining improvement does not eliminate gains by the other player.
     """
     baseline = np.asarray(disagreement_costs, dtype=float).reshape(-1)
     if baseline.shape != (2,) or not np.all(np.isfinite(baseline)):
@@ -66,34 +75,12 @@ def select_nash_bargaining_result(candidate_results, disagreement_costs, cost_to
     if not acceptable:
         return None
 
-    improvement_tolerance = 0.0
-    improvements = np.asarray(
-        [
-            (
-                max(0.0, baseline[0] - result[2]),
-                max(0.0, baseline[1] - result[3]),
-            )
-            for result in acceptable
-        ]
-    )
-    player1_can_improve = np.max(improvements[:, 0]) > improvement_tolerance
-    player2_can_improve = np.max(improvements[:, 1]) > improvement_tolerance
-
-    if not player1_can_improve and player2_can_improve:
-        return min(acceptable, key=lambda result: (result[3], result[2]))
-    if not player2_can_improve and player1_can_improve:
-        return min(acceptable, key=lambda result: (result[2], result[3]))
-    if not player1_can_improve and not player2_can_improve:
-        return min(acceptable, key=lambda result: (result[2] + result[3], result[2]))
-
     return max(
         acceptable,
         key=lambda result: (
-            max(0.0, baseline[0] - result[2] + 1e-12)
-            * max(0.0, baseline[1] - result[3] + 1e-12),
-            max(0.0, baseline[0] - result[2] + 1e-12),
-            + max(0.0, baseline[1] - result[3] + 1e-12),
+            _nash_product(baseline - np.array([result[2], result[3]])),
             -result[2] - result[3],
+            -result[2],
         ),
     )
 
@@ -1378,9 +1365,9 @@ class DGSolver:
                     ]
                     selected = max(
                         acceptable,
-                        key=lambda r: np.prod(np.maximum(
-                            baseline - np.array([r[2], r[3], r[4].player3_cost]), 0.0
-                        )),
+                        key=lambda r: _nash_product(
+                            baseline - np.array([r[2], r[3], r[4].player3_cost])
+                        ),
                     ) if acceptable else None
                 elif candidate_results:
                     selected = min(
@@ -1455,7 +1442,7 @@ class DGSolver:
                     best_solution.bargaining_improvements = np.maximum(
                         baseline - np.array(bargaining_costs), 0.0
                     )
-                    best_solution.nash_product = float(np.prod(best_solution.bargaining_improvements))
+                    best_solution.nash_product = _nash_product(best_solution.bargaining_improvements)
                 elif self.cooperative:
                     best_solution.cooperative_cost_weights = (
                         self.cooperative_cost_weights.copy()
