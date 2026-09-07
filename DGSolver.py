@@ -364,6 +364,7 @@ class DGSolver:
                        alpha=0.5,
                        R1 = 0.05,
                        R2 = 0.05,
+                       R3 = 0.05,
                        LearnedData = None, 
                        p_tol=1e-4,
                        prev_best_cost=None,
@@ -473,6 +474,10 @@ class DGSolver:
         self.Qk = np.diag([1.0, 1.0] + [0.1] * (self.game.nx1 - 2))
         self.R1 = R1
         self.R2 = R2
+        self.R3 = R3
+        # Unicycle inputs are [a, psi]; only acceleration carries an input cost.
+        input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle
+                              else np.eye(self.game.nu1))
         self.p_tol = p_tol
         self.verbose = verbose
         self.nms = True
@@ -498,8 +503,8 @@ class DGSolver:
         time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) <= self.proximity_minval, 0.0, 1.0)
         time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) <= self.proximity_minval, 0.0, 1.0)
         
-        self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*np.eye(self.game.nu1), u1)+time1_to_target - 0.0*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*np.eye(self.game.nu2), u2)-time2_to_target)])
-        self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*np.eye(self.game.nu2), u2)+time2_to_target - 0.0*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*np.eye(self.game.nu1), u1)-time1_to_target)])
+        self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*input_cost_weights, u1)+time1_to_target - 0.0*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*input_cost_weights, u2)-time2_to_target)])
+        self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*input_cost_weights, u2)+time2_to_target - 0.0*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*input_cost_weights, u1)-time1_to_target)])
 
         self.stage_costs = []
         for player, target in enumerate(self.targets):
@@ -512,8 +517,8 @@ class DGSolver:
             self.stage_costs.append(ca.Function(
                 f'player_{player + 1}_stage_cost', [xp, up],
                 [ca.bilin(self.Qk, xp - target)
-                 + ca.bilin((self.R1 if player != 1 else self.R2)
-                            * np.eye(self.game.nu1), up)
+                 + ca.bilin((self.R1, self.R2, self.R3)[player]
+                            * input_cost_weights, up)
                  + time_to_target],
             ))
         if self.game.n_players == 3:
@@ -2017,9 +2022,9 @@ class DGSolver:
         PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
         status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
             nnz=nnz, output="{output}", convergence_tolerance=tol,
-            nms="{nms}", crash_nbchange_limit=50, major_iteration_limit=500,
-            minor_iteration_limit=10000, cumulative_iteration_limit=100000,
-            restart_limit=100)
+            nms="{nms}", crash_nbchange_limit=25, major_iteration_limit=250,
+            minor_iteration_limit=5000, cumulative_iteration_limit=50000,
+            restart_limit=50)
         return z, status == PATHSolver.MCP_Solved, info.residual, status
         """)
         

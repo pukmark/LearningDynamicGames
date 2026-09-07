@@ -171,11 +171,6 @@ if __name__ == '__main__':
     # To reuse saved data instead: LearnedData = load_learned_data(learned_data_path)
     # LearnedData = load_learned_data(learned_data_path)
     
-    Solver2 = DGSolver(
-        Game, x1f=x1f, x2f=x2f,
-        x3f=x3f if player_count == 3 else None,
-        alpha=np.array([alpha1, alpha2]) if player_count == 3 else 1.0 - alpha1,
-    )
     plot_simulation_init(Game)
     movie_path = None
     if not args.no_movie:
@@ -227,7 +222,6 @@ if __name__ == '__main__':
                     (Game.SimpleController1(), Game.SimpleController2(),
                      *([Game.SimpleController3()] if player_count == 3 else []))
                 )
-                Solver2.Solution.success = False
             else:
                 if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
                     u1 = np.zeros(Game.nu)
@@ -296,44 +290,22 @@ if __name__ == '__main__':
                                     break
                         
                                 
-            # # Player 2 Controller
-            if iter == 0:
-                u2 = u1
-            elif cooperative:
-                u2 = u1
-                Solver2.Solution = copy.deepcopy(Solver1.Solution)
-            else:
-                Solver2.Solution.success = False
-                if float(ca.bilin(Solver2.Qk, Game.x[Game.nx1:] - Game.x2f)) <= 1e-8:
-                    u2 = np.zeros(Game.nu)
-                elif Solver1.Solution.success and iter > 0 and np.size(Solver1.Solution.u1) == Solver1.N and np.size(Solver1.Solution.u2) == Solver1.N:
-                    u2 = Solver2.step(Game.t, Game.x, u1_0=Solver1.Solution.u1, u2_0=Solver1.Solution.u2)
-                if not Solver2.Solution.success:
-                    u2 = Solver2.step(Game.t, Game.x)
-                if not Solver2.Solution.success and iter > 0:
-                    u1_0 = Solver1.Solution.u1; u1_0[:-1] = u1_0[1:]
-                    u2_0 = Solver1.Solution.u2; u2_0[:-1] = u2_0[1:]
-                    u2 = Solver2.step(Game.t, Game.x, u1_0=u1_0, u2_0=u2_0, last_attempted_solution=True)
-
             # calculate current cost for player 1:
             current_cost1 += float(Solver1.stage_costs[0](
                 Game.x[:Game.nx1], u1[:Game.nu1]))
             current_cost2 += float(Solver1.stage_costs[1](
                 Game.x[Game.nx1:2 * Game.nx1],
-                u2[Game.nu1:2 * Game.nu1]))
+                u1[Game.nu1:2 * Game.nu1]))
             if player_count == 3:
                 current_cost3 += float(Solver1.stage_costs[2](
                     Game.x[2 * Game.nx1:3 * Game.nx1],
                     u1[2 * Game.nu1:3 * Game.nu1]))
             
-            if not cooperative:
-                u = np.concatenate((u1[0:2], u2[2:]))
-            else:
-                u = u1.copy()
+            u = u1.copy()
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             GameFlag = Game.step(u=u)
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
-            plot_simulation(Game, Solver1, Solver2, LearnedData)
+            plot_simulation(Game, Solver1, LearnedData)
             
             default_gamma = (
                 np.array([alpha1, alpha2]) if player_count == 3 else alpha1
@@ -349,7 +321,7 @@ if __name__ == '__main__':
 
             player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f))
             player2_distance = float(ca.bilin(
-                Solver2.Qk,
+                Solver1.Qk,
                 Game.x[Game.nx1:2 * Game.nx1] - Game.targets[1],
             ))
             player_distances = [player1_distance, player2_distance]
@@ -362,7 +334,7 @@ if __name__ == '__main__':
             
             # if player1_distance <= 10*Solver1.proximity_minval:
             #     Game.x[:Game.nx1] = Game.x1f.copy()
-            # if player2_distance <= 10*Solver2.proximity_minval:
+            # if player2_distance <= 10*Solver1.proximity_minval:
             #     Game.x[Game.nx1:] = Game.x2f.copy()
 
             if Game.t >= tf: EndGame = True
@@ -421,7 +393,7 @@ if __name__ == '__main__':
             iter,
             Game,
             Solver1,
-            iterations_to_use = max(4, int(max_workers/4)))
+            iterations_to_use = max(4, int(max_workers/5)))
 
         LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
         if not cooperative and iter > 0 and should_reduce_alpha(
@@ -450,10 +422,9 @@ if __name__ == '__main__':
         prev_p2_total_cost = LearnedData.RawData[iter].p2_total_cost
         if player_count == 3:
             prev_p3_total_cost = LearnedData.RawData[iter].p3_total_cost
-        Solver2.Solution.success = False
 
     save_learned_data(LearnedData, learned_data_path)
-    plot_simulation(Game, Solver1, Solver2, LearnedData, pause=None)
+    plot_simulation(Game, Solver1, LearnedData, pause=None)
     figure_path = save_simulation_figure()
     movie_path = finish_simulation_movie()
     close_simulation_plots()

@@ -339,7 +339,7 @@ def plot_simulation_init(game):
         [], [], "C0--", alpha=0.8, label="P1 prediction (Solver1)"
     )
     lines["p2_prediction"], = ax_xy.plot(
-        [], [], "C1--", alpha=0.8, label="P2 prediction (Solver2)"
+        [], [], "C1--", alpha=0.8, label="P2 prediction (Solver1)"
     )
     if game.n_players == 3:
         lines["p3_prediction"], = ax_xy.plot(
@@ -469,10 +469,7 @@ def plot_simulation_init(game):
             [], [], "C2-", linewidth=1.5, label="P2-P3 distance"
         )
     lines["solver1_predicted_distance"], = ax_distance.plot(
-        [], [], "C0--", linewidth=1.5, label="P1 solver prediction"
-    )
-    lines["solver2_predicted_distance"], = ax_distance.plot(
-        [], [], "C1-.", linewidth=1.5, label="P2 solver prediction"
+        [], [], "C0--", linewidth=1.5, label="Predicted P1-P2 distance"
     )
     ax_distance.axhline(
         game.d_sep, color="C3", linestyle=":", linewidth=1.5,
@@ -548,7 +545,7 @@ def plot_simulation_init(game):
     if plt.get_backend().lower() != "agg":
         plt.pause(1.0)
 
-def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
+def plot_simulation(game, solver1, LearnedData, pause=0.01):
     """Update a realtime plot for the current game and solver state."""
 
     state = getattr(plot_simulation, "_state", None)
@@ -637,7 +634,6 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
 
     learned_data = LearnedData
     solution = getattr(solver1, "Solution", None)
-    solver2_solution = getattr(solver2, "Solution", None)
 
     gamma_value = np.asarray(
         getattr(solution, "bargaining_gamma", np.nan), dtype=float
@@ -826,7 +822,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         (
             iteration_index + 1,
             float(iteration_data.p1_total_cost),
-            _player2_completed_cost(iteration_data, game, solver2),
+            _player2_completed_cost(iteration_data, game, solver1),
             (_player3_completed_cost(iteration_data, game, solver1)
              if game.n_players == 3 else np.nan),
         )
@@ -1011,12 +1007,6 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     lines["solver1_predicted_distance"].set_data(
         solver1_prediction_time, solver1_predicted_distance
     )
-    solver2_prediction_time, solver2_predicted_distance = (
-        _predicted_player_distance(solver2_solution, game.dt)
-    )
-    lines["solver2_predicted_distance"].set_data(
-        solver2_prediction_time, solver2_predicted_distance
-    )
     ax_distance.relim()
     ax_distance.autoscale_view()
     ax_distance.set_ylim(bottom=game.d_sep - 0.1, top=game.d_sep + 1.0)
@@ -1026,9 +1016,9 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
     else:
         lines["p1_prediction"].set_data([], [])
 
-    if solver2_solution is not None and hasattr(solver2_solution, "x2"):
+    if solution is not None and hasattr(solution, "x2"):
         lines["p2_prediction"].set_data(
-            solver2_solution.x2[:, 0], solver2_solution.x2[:, 1]
+            solution.x2[:, 0], solution.x2[:, 1]
         )
     else:
         lines["p2_prediction"].set_data([], [])
@@ -1144,7 +1134,7 @@ def plot_simulation(game, solver1, solver2, LearnedData, pause=0.01):
         equilibrium_label = (
             rf"$\gamma^*$={float(bargaining_gamma):.2f}"
             if np.isfinite(bargaining_gamma)
-            else f"alpha1={solver1.alpha_vec[0,0]:.2f}, alpha2={solver2.alpha_vec[0,0]:.2f}"
+            else f"alpha1={solver1.alpha_vec[0,0]:.2f}, alpha2={1.0 - solver1.alpha_vec[0,0]:.2f}"
         )
     ax_xy.set_title(
         f"XY trajectory - Iteration: {game.iteration}, {equilibrium_label}, "
