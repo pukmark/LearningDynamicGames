@@ -29,8 +29,8 @@ class GameDynamics:
         vy_min=-2,
         vy_max=2,
         v_min=0.1,
-        v_max=2.0,
-        a_max=2.0,
+        v_max=3.0,
+        a_max=3.0,
         psi_max=np.pi,
         d_sep=0.3,
         dynamics_type=3,
@@ -128,19 +128,11 @@ class GameDynamics:
             self.f_private = ca.Function('f_private', [x1_sym, u1_sym], [u1_sym[0]-self.u_min, 
                                                                      self.u_max-u1_sym[0], 
                                                                      u1_sym[1]-self.u_min, 
-                                                                     self.u_max-u1_sym[1], 
-                                                                     x1_sym[0]-self.x_min, 
-                                                                     self.x_max-x1_sym[0], 
-                                                                     x1_sym[1]-self.y_min, 
-                                                                     self.y_max-x1_sym[1]])
+                                                                     self.u_max-u1_sym[1]           ])
         elif self.is_unicycle:
             steering_min, steering_max = self.steering_bounds
             self.f_private = ca.Function(
                 'f_private', [x1_sym, u1_sym], [
-                    x1_sym[0] - self.x_min,
-                    self.x_max - x1_sym[0],
-                    x1_sym[1] - self.y_min,
-                    self.y_max - x1_sym[1],
                     x1_sym[2] - self.v_min,
                     self.v_max - x1_sym[2],
                     u1_sym[0] + self.a_max,
@@ -154,10 +146,6 @@ class GameDynamics:
                                                                         self.u_max-u1_sym[0], 
                                                                         u1_sym[1]-self.u_min, 
                                                                         self.u_max-u1_sym[1], 
-                                                                        x1_sym[0]-self.x_min, 
-                                                                        self.x_max-x1_sym[0], 
-                                                                        x1_sym[1]-self.y_min, 
-                                                                        self.y_max-x1_sym[1],
                                                                         v1_sym[0]-self.vx_min,
                                                                         self.vx_max-v1_sym[0],
                                                                         v1_sym[1]-self.vy_min,
@@ -229,7 +217,7 @@ class GameDynamics:
         """Turn toward the desired heading using the shortest angular error."""
         error = np.arctan2(np.sin(desired_heading - heading),
                            np.cos(desired_heading - heading))
-        return float(np.clip(error / response_time, self.pdot_min, self.psidot_max))
+        return float(np.clip(error / response_time, -0.5, 0.5))
 
     @staticmethod
     def _as_bounds(value, size, name):
@@ -504,8 +492,8 @@ class GameDynamics:
                 )
             steering = self.heading_rate_control(state[3], desired_heading, 0.5)
         else:
-            steering = np.clip(desired_heading, self.steering_bounds*0.7, self.steering_bounds*0.7)
-        acceleration = np.clip(speed_gain * (desired_speed - state[2]), -self.a_max*0.5, self.a_max*0.5)
+            steering = np.clip(desired_heading, self.steering_bounds, self.steering_bounds)
+        acceleration = np.clip(speed_gain * (desired_speed - state[2]), -1.0, 1.0)
         return np.array([acceleration, steering])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
