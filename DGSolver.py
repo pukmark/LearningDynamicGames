@@ -487,7 +487,7 @@ class DGSolver:
         self.verbose = verbose
         self.nms = True
         self.use_slack = False
-        self.cost_tol = 1e-1
+        self.cost_tol = 1e-3
         
         per_player_proximity = [1.0, 1.0] + [5.0] * (self.game.nx1 - 2)
         self.proximity_Q = (1 / self.game.nx) * np.diag(
@@ -499,11 +499,6 @@ class DGSolver:
         self.large_dx = 20 * self.small_dx
         self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
         self.proximity_maxval = np.array(ca.bilin(self.proximity_Q, self.large_dx)).flatten()[0]
-        
-        x1 = ca.SX.sym('x1', self.game.nx1)
-        x2 = ca.SX.sym('x2', self.game.nx2)
-        u1 = ca.SX.sym('u1', self.game.nu1)
-        u2 = ca.SX.sym('u2', self.game.nu2)
 
         self.stage_costs = []
         for player, target in enumerate(self.targets):
@@ -515,9 +510,7 @@ class DGSolver:
             )
             self.stage_costs.append(ca.Function(
                 f'player_{player + 1}_stage_cost', [xp, up],
-                [ca.bilin(self.Qk, xp - target)
-                 + ca.bilin((self.R1, self.R2, self.R3)[player]
-                            * input_cost_weights, up)
+                [ca.bilin(self.Qk, xp - target) + ca.bilin((self.R1, self.R2, self.R3)[player]*input_cost_weights, up)
                  + time_to_target],
             ))
         if self.game.n_players == 3:
@@ -1183,7 +1176,7 @@ class DGSolver:
                 
             candidate_indices = np.where(
                 cost_filter
-                & (sample_times <= previous_sample_time + (1.5 * self.N) * self.dt)
+                & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
                 & (distance_to_terminal <= (
                     self.game.v_max if self.game.is_unicycle
                     else np.sqrt(2) * self.game.vx_max
@@ -1238,6 +1231,7 @@ class DGSolver:
         if self.max_workers == 1:
             sample_number = 0
             for sample_index, candidate_data in candidate_data_by_index.items():
+                self.is_built = False
                 for gamma_offset, gamma in enumerate(gammas):
                     sample_number += 1
                     self.Solution = copy.deepcopy(previous_solution)
