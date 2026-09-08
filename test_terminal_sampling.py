@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -13,6 +14,54 @@ class CandidateCaptured(Exception):
 
 
 class TerminalSamplingTests(unittest.TestCase):
+    def test_first_gamma_failure_skips_only_its_terminal_state(self):
+        for players in (2, 3):
+            for all_fail in (False, True):
+                with self.subTest(players=players, all_fail=all_fail):
+                    solver, initial = self.make_solver(players)
+                    solver.max_workers = 1
+                    gammas = np.array([0.2, 0.5, 0.8] if players == 2
+                                      else [[0.2, 0.2], [0.3, 0.3], [0.4, 0.4]])
+                    solver.bargaining_gammas = gammas
+                    solver.backup = SimpleNamespace()
+                    calls = []
+
+                    def solve(*args, forced_alpha, terminal_learned_data, sample_number, **kwargs):
+                        sample = int(terminal_learned_data.AnalyzedData.Cost2Go[0])
+                        gamma = next(i for i, value in enumerate(gammas)
+                                     if np.allclose(value, forced_alpha))
+                        calls.append((sample, gamma, sample_number))
+                        solver.Solver = object()
+                        # Sample 0 fails immediately. Sample 1 succeeds, fails,
+                        # then succeeds, so a later failure must not end its search.
+                        solver.last_solve_success = not all_fail and sample == 1 and gamma != 1
+                        solver.Solution = SimpleNamespace(
+                            success=solver.last_solve_success, sigma=np.ones(1),
+                            **{f'u{p + 1}': np.full((1, 2), gamma) for p in range(players)},
+                        )
+
+                    fallback = np.full(solver.game.nu, -1.0)
+                    with patch.object(solver, 'calc_a_set', return_value=(None, 0.0)), \
+                            patch.object(solver, '_step_once', side_effect=solve), \
+                            patch.object(solver, '_player1_cost', return_value=1.0), \
+                            patch.object(solver, '_player2_cost', return_value=1.0), \
+                            patch.object(solver, '_player3_cost', return_value=1.0), \
+                            patch.object(solver, 'backup_controller_update'), \
+                            patch.object(solver, 'backup_controller', return_value=fallback) as backup:
+                        control = solver._step_over_sampled_terminal_states(
+                            0.0, initial, use_all_terminal_points=True)
+                    expected = [(sample, gamma, sample * 3 + gamma + 1)
+                                for sample in range(6)
+                                for gamma in (range(3) if sample == 1 and not all_fail else [0])]
+                    self.assertEqual(calls, expected)
+                    if all_fail:
+                        backup.assert_called_once()
+                        np.testing.assert_array_equal(control, fallback)
+                    else:
+                        backup.assert_not_called()
+                        self.assertEqual(solver.Solution.terminal_sample_index, 1)
+                        self.assertTrue(solver.last_solve_success)
+
     def make_solver(self, players, cooperative=True):
         mode = 3 if players == 2 else 2
         state_size = 3 if mode == 3 else 4

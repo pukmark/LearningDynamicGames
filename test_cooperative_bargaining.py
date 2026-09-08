@@ -22,6 +22,39 @@ from LDG_Simulation_aux import (
 
 
 class NashBargainingTests(unittest.TestCase):
+    def test_worker_skips_remaining_gammas_only_when_first_candidate_fails(self):
+        for failed_index in (0, 1):
+            for raises in (False, True):
+                with self.subTest(failed_index=failed_index, raises=raises):
+                    calls = []
+
+                    class FakeSolver:
+                        sigma_zero_tolerance = 1e-8
+                        Solution = SimpleNamespace()
+
+                        def _step_once(self, *args, forced_alpha=None, **kwargs):
+                            calls.append(forced_alpha)
+                            self.Solver = object()
+                            self.last_solve_success = len(calls) - 1 != failed_index
+                            if raises and not self.last_solve_success:
+                                raise RuntimeError('solver failed')
+                            self.Solution = SimpleNamespace(sigma=np.ones(1))
+
+                        def _player1_cost(self, *args):
+                            return 1.0
+
+                        def _player2_cost(self, *args):
+                            return 2.0
+
+                    results = _solve_sampled_terminal_gamma_sequence(
+                        FakeSolver(), None, 3, 1, 3, 0.0, np.zeros(1),
+                        [0.25, 0.5, 0.75], None, None, None, 0.0,
+                    )
+                    self.assertEqual(calls, [0.25] if failed_index == 0 else [0.25, 0.5, 0.75])
+                    self.assertIsNone(results[failed_index][4])
+                    if failed_index == 1:
+                        self.assertIsNotNone(results[-1][4])
+
     def test_candidates_cannot_worsen_either_previous_iteration_total(self):
         candidates = [
             (0, 0.25, 50.0, 30.0),

@@ -391,7 +391,8 @@ def plot_simulation_init(game):
     )
 
     if game.is_unicycle:
-        input_x_label, input_y_label = "a", r"$\psi$"
+        input_x_label = "a"
+        input_y_label = r"$\dot{\psi}$" if game.has_heading_state else r"$\psi$"
     else:
         input_label = "v" if game.is_single_integrator else "a"
         input_x_label, input_y_label = f"{input_label}x", f"{input_label}y"
@@ -407,8 +408,10 @@ def plot_simulation_init(game):
     if game.is_unicycle:
         ax_u.axhline(game.a_max, color="C4", linestyle=":", linewidth=1.5, label="Acceleration limits")
         ax_u.axhline(-game.a_max, color="C4", linestyle=":", linewidth=1.5)
-        ax_u.axhline(game.psi_max, color="C5", linestyle=":", linewidth=1.5, label="Heading limits")
-        ax_u.axhline(-game.psi_max, color="C5", linestyle=":", linewidth=1.5)
+        steering_min, steering_max = game.steering_bounds
+        steering_label = "Heading-rate limits" if game.has_heading_state else "Heading limits"
+        ax_u.axhline(steering_max, color="C5", linestyle=":", linewidth=1.5, label=steering_label)
+        ax_u.axhline(steering_min, color="C5", linestyle=":", linewidth=1.5)
     else:
         ax_u.axhline(game.u_max_shared, color="C4", linestyle=":", linewidth=2, label="Shared input maximum")
         ax_u.axhline(game.u_min_shared, color="C4", linestyle=":", linewidth=2, label="Shared input minimum")

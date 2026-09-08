@@ -298,7 +298,7 @@ def _solve_sampled_terminal_gamma_sequence(
     a_set,
     proximity_factor,
 ):
-    """Solve gamma values for one terminal state, stopping at zero interaction."""
+    """Skip further gammas if the first solve fails or interaction vanishes."""
     solver = copy.copy(worker_solver)
     initial_solution = copy.deepcopy(worker_solver.Solution)
     solver.Solver = None
@@ -339,6 +339,8 @@ def _solve_sampled_terminal_gamma_sequence(
             )
         results.append(result)
         solution = result[4]
+        if gamma_offset == 0 and solution is None:
+            break
         if solution is not None and solution_has_no_interaction(
             solution, worker_solver.sigma_zero_tolerance
         ):
@@ -471,12 +473,15 @@ class DGSolver:
         self.is_built = False
         self._sampled_solver_cache = {}
         
-        self.Qk = np.diag([1.0, 1.0] + [0.1] * (self.game.nx1 - 2))
+        if self.game.is_unicycle and self.game.nx1 == 4:
+            self.Qk = np.diag([1.0, 1.0, 0.1, 0.0])
+        else:
+            self.Qk = np.diag([1.0, 1.0] + [0.1] * (self.game.nx1 - 2))
         self.R1 = R1
         self.R2 = R2
         self.R3 = R3
-        # Unicycle inputs are [a, psi]; only acceleration carries an input cost.
-        input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle
+        # Unicycle inputs are [a, psi] or [a, psi_dot]; only acceleration is penalized.
+        input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle and self.game.nx1 == 3
                               else np.eye(self.game.nu1))
         self.p_tol = p_tol
         self.verbose = verbose
@@ -499,12 +504,6 @@ class DGSolver:
         x2 = ca.SX.sym('x2', self.game.nx2)
         u1 = ca.SX.sym('u1', self.game.nu1)
         u2 = ca.SX.sym('u2', self.game.nu2)
-
-        time1_to_target = ca.if_else(ca.bilin(self.Qk, x1-self.x1f.T) <= self.proximity_minval, 0.0, 1.0)
-        time2_to_target = ca.if_else(ca.bilin(self.Qk, x2-self.x2f.T) <= self.proximity_minval, 0.0, 1.0)
-        
-        self.l1 = ca.Function('l1', [x1, u1, x2, u2], [ca.bilin(self.Qk, x1-self.x1f.T) + ca.bilin(self.R1*input_cost_weights, u1)+time1_to_target - 0.0*(ca.bilin(self.Qk, x2-self.x2f.T) - ca.bilin(self.R2*input_cost_weights, u2)-time2_to_target)])
-        self.l2 = ca.Function('l2', [x2, u2, x1, u1], [ca.bilin(self.Qk, x2-self.x2f.T) + ca.bilin(self.R2*input_cost_weights, u2)+time2_to_target - 0.0*(ca.bilin(self.Qk, x1-self.x1f.T) - ca.bilin(self.R1*input_cost_weights, u1)-time1_to_target)])
 
         self.stage_costs = []
         for player, target in enumerate(self.targets):
@@ -592,7 +591,7 @@ class DGSolver:
         # Define The first player lagrangian:
         L1 = 0
         for k in range(self.N):
-            L1 += self.l1(x1[k,:], u1[k,:], x2[k,:], u2[k,:])
+            L1 += self.stage_costs[0](x1[k,:], u1[k,:])
             
         if Terminal_Safe_Set is not None:
             if Terminal_Safe_Set.state.shape[0] > 1:
@@ -600,7 +599,7 @@ class DGSolver:
             else:
                 L1 += Terminal_Safe_Set.Cost2Go
         else:
-            L1 += self.l1(x1[self.N,:], np.zeros_like(u1[0,:].shape), x2[self.N,:], np.zeros_like(u2[0,:].shape))
+            L1 += self.stage_costs[0](x1[self.N,:], np.zeros_like(u1[0,:].shape))
         # L1 += 1e8*ca.sumsqr(x1f_slack)
             
         # Player 1 Dynamics:
@@ -683,7 +682,8 @@ class DGSolver:
                         self.game.u_max - ay,
                     ])
         if self.use_slack and Terminal_Safe_Set is not None:
-            p1.extend([1.0e-8 - x1f_slack**2])
+            # p1.extend([1.0e-2 - x1f_slack**2])
+            L1 += 1e8*ca.sumsqr(x1f_slack)
                 
         # Final joint state is a convex combination of the smapled dataset
         if Terminal_Safe_Set is not None:
@@ -703,7 +703,7 @@ class DGSolver:
         # Define the second player lagrangian using the same quadratic structure.
         L2 = 0
         for k in range(self.N):
-            L2 += self.l2(x2[k, :], u2[k, :], x1[k, :], u1[k, :])
+            L2 += self.stage_costs[1](x2[k, :], u2[k, :])
         if Terminal_Safe_Set is not None and hasattr(Terminal_Safe_Set, "Cost2Go2"):
             terminal_cost2 = np.asarray(
                 Terminal_Safe_Set.Cost2Go2, dtype=float
@@ -713,7 +713,7 @@ class DGSolver:
             elif terminal_cost2.size == 1:
                 L2 += float(terminal_cost2[0])
         else:
-            L2 += self.l2(x2[self.N, :], np.zeros_like(u2[0, :].shape), x1[self.N, :], np.zeros_like(u1[0, :].shape))
+            L2 += self.stage_costs[1](x2[self.N, :], np.zeros_like(u2[0, :].shape))
         # L2 += 1e8*ca.sumsqr(x2f_slack)
 
         # Player 2 dynamics are equality constraints enforced by mu_2.
@@ -800,7 +800,8 @@ class DGSolver:
                     ]
                 )
         if self.use_slack and Terminal_Safe_Set is not None:
-            p2.extend([1.0e-8 - x2f_slack**2])
+            # p2.extend([1.0e-2 - x2f_slack**2])
+            L2 += 1e8*ca.sumsqr(x2f_slack)
         p2_ph = ca.vertcat(*p2)
         lambda_2 = ca.SX.sym("lambda_2", p2_ph.shape[0])
 
@@ -1031,17 +1032,17 @@ class DGSolver:
             lagrangians.append(Lp)
 
         shared, shared_stages = [], []
-        for k in range(self.N + 1):
-            controls = ([us[p][k, :] for p in range(player_count)]
-                        if k < self.N else
-                        [ca.DM.zeros(self.game.nu1) for _ in range(player_count)])
-            values = self.game.f_shared(ca.horzcat(*[x[k, :] for x in xs]), *controls)
-            if not isinstance(values, tuple):
-                values = (values,)
-            for value in values:
-                if is_symbolic_expr(value):
-                    shared.append(value)
-                    shared_stages.append(k)
+        # for k in range(self.N + 1):
+        #     controls = ([us[p][k, :] for p in range(player_count)]
+        #                 if k < self.N else
+        #                 [ca.DM.zeros(self.game.nu1) for _ in range(player_count)])
+        #     values = self.game.f_shared(ca.horzcat(*[x[k, :] for x in xs]), *controls)
+        #     if not isinstance(values, tuple):
+        #         values = (values,)
+        #     for value in values:
+        #         if is_symbolic_expr(value):
+        #             shared.append(value)
+        #             shared_stages.append(k)
         sg_vec = ca.vertcat(*shared)
         alpha1_k = ca.vertcat(*[alpha_vec[k, 0] for k in shared_stages])
         alpha2_k = ca.vertcat(*[alpha_vec[k, 1] for k in shared_stages])
@@ -1107,6 +1108,24 @@ class DGSolver:
         if A is None or B is None:
             A, B = self._discrete_player_dynamics(self.game.nx1)
         return A @ state.T + B @ control.T
+
+    def _heading_state_initial_control(self, state, target, remaining_time):
+        """Seed a mode-4 rollout with bounded acceleration and heading rate."""
+        error = target[:2] - state[:2]
+        distance = np.linalg.norm(error)
+        heading = np.arctan2(error[1], error[0]) if distance > 1e-8 else target[3]
+        braking_speed = np.sqrt(max(target[2], 0.0)**2
+                                + 2.0 * self.game.a_max * distance)
+        # Slow down while turning instead of accelerating away from the target.
+        alignment = max(0.0, np.cos(heading - state[3]))
+        desired_speed = np.clip(
+            min(distance / remaining_time, braking_speed) * alignment,
+            self.game.v_min, self.game.v_max,
+        )
+        acceleration = np.clip((desired_speed - state[2]) / self.game.dt,
+                               -self.game.a_max, self.game.a_max)
+        heading_rate = self.game.heading_rate_control(state[3], heading, remaining_time)
+        return np.array([acceleration, heading_rate])
 
     def step(self, t, x0, current_cost1=0.0, current_cost2=0.0,
              current_cost3=0.0,
@@ -1240,6 +1259,9 @@ class DGSolver:
                     if candidate_solver is None:
                         self._sampled_solver_cache[cache_key] = self.Solver
                     if not self.last_solve_success:
+                        if gamma_offset == 0:
+                            sample_number += len(gammas) - 1
+                            break
                         continue
 
                     candidate_solution = copy.deepcopy(self.Solution)
@@ -1506,7 +1528,7 @@ class DGSolver:
         cost = 0.0
         target = np.asarray(self.x1f, dtype=float).reshape(-1)
         for k in range(self.N):
-            cost += float(self.l1(solution.x1[k], solution.u1[k], solution.x2[k], solution.u2[k]))
+            cost += float(self.stage_costs[0](solution.x1[k], solution.u1[k]))
         cost_to_go = np.asarray(learned_data.AnalyzedData.Cost2Go, dtype=float).reshape(-1)
         weights = np.asarray(solution.ai_xf_vec, dtype=float).reshape(-1) if solution.ai_xf_vec.shape[0]>1 else np.asarray(1, dtype=float).reshape(-1)
         return cost + float(cost_to_go @ weights)
@@ -1516,10 +1538,7 @@ class DGSolver:
         cost = 0.0
         for k in range(self.N):
             cost += float(
-                self.l2(
-                    solution.x2[k], solution.u2[k],
-                    solution.x1[k], solution.u1[k],
-                )
+                self.stage_costs[1](solution.x2[k], solution.u2[k])
             )
         analyzed = learned_data.AnalyzedData
         if hasattr(analyzed, "Cost2Go2"):
@@ -1639,7 +1658,8 @@ class DGSolver:
             u1 = np.ones((self.N, self.game.nu1))
             if self.game.is_unicycle:
                 u1[:, 0] *= -self.game.a_max * 0.01
-                u1[:, 1] *= -self.game.psi_max * 0.01
+                lower, upper = self.game.steering_bounds
+                u1[:, 1] *= np.clip(lower * 0.01, lower, upper)
             else:
                 u1[:,0] *= -self.game.u_max*0.01
                 u1[:,1] *= -self.game.u_max*0.01
@@ -1653,7 +1673,8 @@ class DGSolver:
             u2 = np.ones((self.N, self.game.nu2))
             if self.game.is_unicycle:
                 u2[:, 0] *= self.game.a_max * 0.01
-                u2[:, 1] *= self.game.psi_max * 0.01
+                lower, upper = self.game.steering_bounds
+                u2[:, 1] *= np.clip(upper * 0.01, lower, upper)
             else:
                 u2[:,0] *= self.game.u_max*0.01
                 u2[:,1] *= self.game.u_max*0.01
@@ -1673,7 +1694,18 @@ class DGSolver:
         x2 = np.zeros((self.N + 1, self.game.nx2))-0.1
         x1[0, :] = x1_0.ravel()
         x2[0, :] = x2_0.ravel()
+        guess_targets = self.targets
+        if self.game.has_heading_state and LearnedData1 is not None:
+            terminal_states = np.asarray(LearnedData1.AnalyzedData.state).reshape(-1, self.game.nx)
+            if len(terminal_states) == 1:
+                guess_targets = terminal_states[0].reshape(self.game.n_players, self.game.nx1)
         for k in range(self.N):
+            if self.game.has_heading_state:
+                remaining_time = (self.N - k) * self.dt
+                if u1_0 is None:
+                    u1[k] = self._heading_state_initial_control(x1[k], guess_targets[0], remaining_time)
+                if u2_0 is None:
+                    u2[k] = self._heading_state_initial_control(x2[k], guess_targets[1], remaining_time)
             x1[k + 1, :] = np.asarray(
                 self._player_next_state(x1[k, :], u1[k, :], self.A1, self.B1)
             ).reshape(-1)
@@ -1939,7 +1971,9 @@ class DGSolver:
                 for k in range(self.N):
                     error = target[:2] - xp[k, :2]
                     remaining_time = (self.N - k) * self.dt
-                    if self.game.is_unicycle:
+                    if self.game.has_heading_state:
+                        up[k] = self._heading_state_initial_control(xp[k], target, remaining_time)
+                    elif self.game.is_unicycle:
                         distance = np.linalg.norm(error)
                         heading = (np.arctan2(error[1], error[0]) if distance > 1e-8
                                    else up[k - 1, 1] if k else 0.0)

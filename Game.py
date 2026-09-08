@@ -35,18 +35,20 @@ class GameDynamics:
         d_sep=0.3,
         dynamics_type=3,
         MaxIterations=50,
+        pdot_min=-0.5,
+        psidot_max=0.5,
     ):
         if dt <= 0:
             raise ValueError("dt must be positive")
-        if dynamics_type not in (1, 2, 3):
+        if dynamics_type not in (1, 2, 3, 4):
             raise ValueError(
                 "dynamics_type must be 1 (single integrator), 2 (double "
-                "integrator), or 3 (unicycle)"
+                "integrator), 3 (heading-input unicycle), or 4 (heading-state unicycle)"
             )
 
         self.dt = float(dt)
         self.dynamics_type = int(dynamics_type)
-        self.nx1 = {1: 2, 2: 4, 3: 3}[self.dynamics_type]
+        self.nx1 = {1: 2, 2: 4, 3: 3, 4: 4}[self.dynamics_type]
         self.nu1 = 2
         self.targets = [
             np.asarray(target, dtype=float).reshape(-1)
@@ -83,6 +85,11 @@ class GameDynamics:
         self.v_max = float(v_max)
         self.a_max = float(a_max)
         self.psi_max = float(psi_max)
+        self.pdot_min = float(pdot_min)
+        self.psidot_max = float(psidot_max)
+        if (not np.all(np.isfinite([self.pdot_min, self.psidot_max]))
+                or self.pdot_min >= self.psidot_max):
+            raise ValueError("heading-rate bounds must be finite and pdot_min < psidot_max")
         if min(self.v_max, self.a_max, self.psi_max) <= 0:
             raise ValueError("unicycle limits must be positive")
         if self.v_min < 0 or self.v_min >= self.v_max:
@@ -127,6 +134,7 @@ class GameDynamics:
                                                                      x1_sym[1]-self.y_min, 
                                                                      self.y_max-x1_sym[1]])
         elif self.is_unicycle:
+            steering_min, steering_max = self.steering_bounds
             self.f_private = ca.Function(
                 'f_private', [x1_sym, u1_sym], [
                     x1_sym[0] - self.x_min,
@@ -137,8 +145,8 @@ class GameDynamics:
                     self.v_max - x1_sym[2],
                     u1_sym[0] + self.a_max,
                     self.a_max - u1_sym[0],
-                    u1_sym[1] + self.psi_max,
-                    self.psi_max - u1_sym[1],
+                    u1_sym[1] - steering_min,
+                    steering_max - u1_sym[1],
                 ],
             )
         else:
@@ -153,7 +161,8 @@ class GameDynamics:
                                                                         v1_sym[0]-self.vx_min,
                                                                         self.vx_max-v1_sym[0],
                                                                         v1_sym[1]-self.vy_min,
-                                                                        self.vy_max-v1_sym[1]])
+                                                                        self.vy_max-v1_sym[1]]
+                                         )
         
         shared_constraints = []
         if not self.is_unicycle:
@@ -180,13 +189,18 @@ class GameDynamics:
         # Dynamics Function:
         # Internal state is [p1x, p1y, p2x, p2y] for single-integrator mode,
         # [px, py, vx, vy] per player for double-integrator mode,
-        # or [px, py, v] per player for unicycle mode.
+        # or [px, py, v] / [px, py, v, psi] for unicycle modes 3 / 4.
         k1 = self.dynamics(x1_sym, u1_sym)
         k2 = self.dynamics(x1_sym + 0.5 * dt *k1, u1_sym)
         k3 = self.dynamics(x1_sym + 0.5 * dt * k2, u1_sym)
         k4 = self.dynamics(x1_sym + dt * k3, u1_sym)
-
         self.xkp1 = x1_sym + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        
+        # RK2:
+        # k1 = self.dynamics(x1_sym, u1_sym)
+        # k2 = self.dynamics(x1_sym + dt * k1, u1_sym)
+        # self.xkp1 = x1_sym + dt * k1
+
         self.dynamics_fun = ca.Function('fynamics_fun', [x1_sym, u1_sym], [self.xkp1])
         
         
@@ -198,7 +212,24 @@ class GameDynamics:
 
     @property
     def is_unicycle(self):
-        return self.dynamics_type == 3
+        return self.dynamics_type in (3, 4)
+
+    @property
+    def has_heading_state(self):
+        return self.dynamics_type == 4
+
+    @property
+    def steering_bounds(self):
+        """Bounds on heading (mode 3) or heading rate (mode 4)."""
+        if self.has_heading_state:
+            return self.pdot_min, self.psidot_max
+        return -self.psi_max, self.psi_max
+
+    def heading_rate_control(self, heading, desired_heading, response_time):
+        """Turn toward the desired heading using the shortest angular error."""
+        error = np.arctan2(np.sin(desired_heading - heading),
+                           np.cos(desired_heading - heading))
+        return float(np.clip(error / response_time, self.pdot_min, self.psidot_max))
 
     @staticmethod
     def _as_bounds(value, size, name):
@@ -269,10 +300,15 @@ class GameDynamics:
             State x = [p1x, p1y, v1x, v1y, p2x, p2y, v2x, v2y]
             Input u = [a1x, a1y, a2x, a2y]
 
-        Unicycle (per player):
+        Unicycle, mode 3 (per player):
             State x = [x, y, v]
             Input u = [a, psi], with heading psi in radians
             x_dot = [v*cos(psi), v*sin(psi), a]
+
+        Unicycle, mode 4 (per player):
+            State x = [x, y, v, psi]
+            Input u = [a, psi_dot], with psi_dot in radians per second
+            x_dot = [v*cos(psi), v*sin(psi), a, psi_dot]
         """
         casadi_types = (ca.SX, ca.MX, ca.DM)
         use_casadi = isinstance(x, casadi_types) or isinstance(u, casadi_types)
@@ -318,12 +354,14 @@ class GameDynamics:
                 x_offset = player * self.nx1
                 u_offset = player * self.nu1
                 speed = x[x_offset + 2]
-                heading = u[u_offset + 1]
+                heading = x[x_offset + 3] if self.has_heading_state else u[u_offset + 1]
                 components.extend([
                     speed * ca.cos(heading) if use_casadi else speed * np.cos(heading),
                     speed * ca.sin(heading) if use_casadi else speed * np.sin(heading),
                     u[u_offset],
                 ])
+                if self.has_heading_state:
+                    components.append(u[u_offset + 1])
         else:
             components = []
             for player in range(player_count):
@@ -360,10 +398,12 @@ class GameDynamics:
         # Reject invalid controls before changing the internal state.
         if self.is_unicycle:
             accelerations = u[0::2]
-            headings = u[1::2]
+            steering = u[1::2]
+            steering_min, steering_max = self.steering_bounds
             invalid_input = (
                 np.any(np.abs(accelerations) > self.a_max + self.eps)
-                or np.any(np.abs(headings) > self.psi_max + self.eps)
+                or np.any(steering < steering_min - self.eps)
+                or np.any(steering > steering_max + self.eps)
             )
         else:
             invalid_input = np.any(u < self.u_min-self.eps) or np.any(u > self.u_max+self.eps)
@@ -423,6 +463,8 @@ class GameDynamics:
         if not isinstance(f_shared, tuple):
             f_shared = (f_shared,)
         for f in f_shared:
+            if f is None:
+                continue
             if f < -self.eps:
                 return self.SHARED_CONSTRAINT_VIOLATED
         
@@ -444,18 +486,29 @@ class GameDynamics:
         """Bounded point-tracking controller for the unicycle bootstrap."""
         offset = player * self.nx1
         state = self.x[offset:offset + self.nx1]
-        error = np.asarray(target, dtype=float).reshape(-1)[:2] - state[:2]
+        target = np.asarray(target, dtype=float).reshape(-1)
+        error = target[:2] - state[:2]
         distance = np.linalg.norm(error)
         if distance > 1e-8:
             desired_heading = np.arctan2(error[1], error[0])
         else:
             desired_heading = 0.0
         desired_speed = max(self.v_min, min(self.v_max / 2, position_gain * distance))
+        if self.has_heading_state:
+            if distance <= 1e-3:
+                desired_heading = target[3]
+                desired_speed = self.v_min
+            else:
+                desired_speed = max(
+                    self.v_min, desired_speed * max(0.0, np.cos(desired_heading - state[3]))
+                )
+            steering = self.heading_rate_control(state[3], desired_heading, 0.5)
+        else:
+            steering = np.clip(desired_heading, -self.psi_max, self.psi_max)
         acceleration = np.clip(
-            speed_gain * (desired_speed - state[2]), -self.a_max*0.33, self.a_max*0.33
+            speed_gain * (desired_speed - state[2]), -self.a_max*0.5, self.a_max*0.5
         )
-        heading = np.clip(desired_heading, -self.psi_max, self.psi_max)
-        return np.array([acceleration, heading])
+        return np.array([acceleration, steering])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 1.
@@ -517,7 +570,7 @@ class GameDynamics:
 
         u_min = self._as_bounds(self.u_min, self.nu, "u_min")[:self.nu1]
         u_max = self._as_bounds(self.u_max, self.nu, "u_max")[:self.nu1]
-        return np.clip(control, u_min, u_max)
+        return np.clip(control, u_min*0.5, u_max*0.5)
 
     def SimpleController2(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
         """Return a bounded, goal-tracking control for player 2.
@@ -567,7 +620,7 @@ class GameDynamics:
 
         u_min = self._as_bounds(self.u_min, self.nu, "u_min")[self.nu1:2 * self.nu1]
         u_max = self._as_bounds(self.u_max, self.nu, "u_max")[self.nu1:2 * self.nu1]
-        return np.clip(control, u_min, u_max)
+        return np.clip(control, u_min*0.5, u_max*0.5)
 
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""

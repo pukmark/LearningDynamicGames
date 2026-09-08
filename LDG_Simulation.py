@@ -28,11 +28,13 @@ L = 5.0
 W = 4.0
 dt = 0.1
 tf = 15.0
-dynamics_type = 3  # 1: single integrator, 2: double integrator, 3: unicycle
+dynamics_type = 4  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
 v_min = 0.0
 v_max = 2.0
 a_max = 2.0
 psi_max = np.pi  # rad, absolute heading input bound
+pdot_min = -0.5  # rad/s, minimum heading rate for dynamics_type=4
+psidot_max = 0.5  # rad/s, maximum heading rate for dynamics_type=4
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
 # state and the shared-constraint equilibrium weight. The selection can use
@@ -60,14 +62,14 @@ x0_players = (
 alpha1, alpha2 = 1/3.0, 1/3.0
 
 max_workers = max(1, int(os.cpu_count() * 0.33))
-# max_workers = 1
+max_workers = 1
         
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the learning dynamic-game simulation.")
     parser.add_argument(
         "--players", type=int, choices=(2, 3),
-        default=3 if dynamics_type == 3 else 3,
+        default=2,
         help="number of players (default: 2 for unicycle, 3 for integrators)",
     )
     parser.add_argument(
@@ -165,6 +167,7 @@ if __name__ == '__main__':
         L=L, W=W, dynamics_type=dynamics_type, v_min=v_min, v_max=v_max,
         a_max=a_max,
         psi_max=psi_max,
+        pdot_min=pdot_min, psidot_max=psidot_max,
         MaxIterations=Niterations,
     )
     LearnedData = init_learned_data()
