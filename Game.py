@@ -504,10 +504,8 @@ class GameDynamics:
                 )
             steering = self.heading_rate_control(state[3], desired_heading, 0.5)
         else:
-            steering = np.clip(desired_heading, -self.psi_max, self.psi_max)
-        acceleration = np.clip(
-            speed_gain * (desired_speed - state[2]), -self.a_max*0.5, self.a_max*0.5
-        )
+            steering = np.clip(desired_heading, self.steering_bounds, self.steering_bounds)
+        acceleration = np.clip(speed_gain * (desired_speed - state[2]), -self.a_max*0.5, self.a_max*0.5)
         return np.array([acceleration, steering])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
@@ -520,7 +518,7 @@ class GameDynamics:
         """
         
         if (
-            self.t < 2.2
+            self.t < 2.5
             and (
                 self.is_single_integrator
                 or self.is_unicycle
