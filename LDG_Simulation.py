@@ -28,7 +28,7 @@ L = 5.0
 W = 5.0
 dt = 0.1
 tf = 15.0
-dynamics_type = 3  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
+dynamics_type = 4  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
 # state and the shared-constraint equilibrium weight. The selection can use
@@ -187,7 +187,7 @@ if __name__ == '__main__':
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
             alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-            horizon=5,
+            horizon=7,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             max_workers=max_workers,
             cooperative=cooperative,

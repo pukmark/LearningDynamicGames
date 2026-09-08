@@ -35,8 +35,8 @@ class GameDynamics:
         d_sep=0.3,
         dynamics_type=3,
         MaxIterations=50,
-        pdot_min=-0.5,
-        psidot_max=0.5,
+        psidot_min=-1.5,
+        psidot_max=1.5,
     ):
         if dt <= 0:
             raise ValueError("dt must be positive")
@@ -85,10 +85,10 @@ class GameDynamics:
         self.v_max = float(v_max)
         self.a_max = float(a_max)
         self.psi_max = float(psi_max)
-        self.pdot_min = float(pdot_min)
+        self.psidot_min = float(psidot_min)
         self.psidot_max = float(psidot_max)
-        if (not np.all(np.isfinite([self.pdot_min, self.psidot_max]))
-                or self.pdot_min >= self.psidot_max):
+        if (not np.all(np.isfinite([self.psidot_min, self.psidot_max]))
+                or self.psidot_min >= self.psidot_max):
             raise ValueError("heading-rate bounds must be finite and pdot_min < psidot_max")
         if min(self.v_max, self.a_max, self.psi_max) <= 0:
             raise ValueError("unicycle limits must be positive")
@@ -210,7 +210,7 @@ class GameDynamics:
     def steering_bounds(self):
         """Bounds on heading (mode 3) or heading rate (mode 4)."""
         if self.has_heading_state:
-            return self.pdot_min, self.psidot_max
+            return self.psidot_min, self.psidot_max
         return -self.psi_max, self.psi_max
 
     def heading_rate_control(self, heading, desired_heading, response_time):
@@ -553,7 +553,7 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        if self.t < 2.8:
+        if self.t < 2.0:
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
             target[0] += 4.0
         else:
@@ -600,7 +600,7 @@ class GameDynamics:
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
         if self.t < 1.5:
-            target[0] += 2.0
+            target[0] += 1.0
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")

@@ -1174,9 +1174,10 @@ class DGSolver:
             else:
                 cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
                 
+            horizon_search = np.clip(6-self.game.iteration, 1.5, 4)*self.N * self.dt
             candidate_indices = np.where(
                 cost_filter
-                & (sample_times <= previous_sample_time + (2.0 * self.N) * self.dt)
+                & (sample_times <= previous_sample_time + horizon_search)
                 & (distance_to_terminal <= (
                     self.game.v_max if self.game.is_unicycle
                     else np.sqrt(2) * self.game.vx_max
