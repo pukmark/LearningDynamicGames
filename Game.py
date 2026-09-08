@@ -23,15 +23,15 @@ class GameDynamics:
         u_min=-2,
         u_max=2,
         L=20.0,
-        W=2,
+        W=10.0,
         vx_min=-2,
         vx_max=2,
         vy_min=-2,
         vy_max=2,
-        v_min=0.1,
-        v_max=3.0,
-        a_max=3.0,
-        psi_max=np.pi,
+        v_min=0.0,
+        v_max=2.5,
+        a_max=10.0,
+        psi_max=2*np.pi,
         d_sep=0.3,
         dynamics_type=3,
         MaxIterations=50,
@@ -164,8 +164,7 @@ class GameDynamics:
                 offset = player * self.nx1
                 velocities.append(x_sym[offset + 2])
         shared_constraints.append(
-            (self.n_players-1) * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities)
-        )
+            (self.n_players-1) * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1
@@ -392,8 +391,8 @@ class GameDynamics:
             steering_min, steering_max = self.steering_bounds
             invalid_input = (
                 np.any(np.abs(accelerations) > self.a_max + self.eps)
-                or np.any(steering < steering_min - self.eps)
-                or np.any(steering > steering_max + self.eps)
+                # or np.any(steering < steering_min - self.eps)
+                # or np.any(steering > steering_max + self.eps)
             )
         else:
             invalid_input = np.any(u < self.u_min-self.eps) or np.any(u > self.u_max+self.eps)
@@ -494,7 +493,7 @@ class GameDynamics:
                 )
             steering = self.heading_rate_control(state[3], desired_heading, 0.5)
         else:
-            steering = np.clip(desired_heading, self.steering_bounds, self.steering_bounds)
+            steering = desired_heading
         acceleration = np.clip(speed_gain * (desired_speed - state[2]), -1.0, 1.0)
         return np.array([acceleration, steering])
 

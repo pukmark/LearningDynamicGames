@@ -25,16 +25,10 @@ from SimulationPlot import *
 np.random.seed(100)
 
 L = 5.0
-W = 4.0
+W = 5.0
 dt = 0.1
 tf = 15.0
-dynamics_type = 4  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
-v_min = 0.0
-v_max = 2.0
-a_max = 2.0
-psi_max = np.pi  # rad, absolute heading input bound
-pdot_min = -1.0  # rad/s, minimum heading rate for dynamics_type=4
-psidot_max = 1.0  # rad/s, maximum heading rate for dynamics_type=4
+dynamics_type = 3  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
 # state and the shared-constraint equilibrium weight. The selection can use
@@ -164,10 +158,7 @@ if __name__ == '__main__':
     
     Game = GameDynamics(
         dt, x0, x1f, x2f, x3f=x3f if player_count == 3 else None,
-        L=L, W=W, dynamics_type=dynamics_type, v_min=v_min, v_max=v_max,
-        a_max=a_max,
-        psi_max=psi_max,
-        pdot_min=pdot_min, psidot_max=psidot_max,
+        L=L, W=W, dynamics_type=dynamics_type,
         MaxIterations=Niterations,
     )
     LearnedData = init_learned_data()
@@ -183,10 +174,14 @@ if __name__ == '__main__':
 
     # Start Julia/PATHSolver once for this simulation execution. The main
     # process and persistent terminal workers are reused by every iteration.
-    initialize_pathsolver_runtime(max_workers=max_workers)
+    # initialize_pathsolver_runtime(max_workers=max_workers)
 
     iteration_paths = []
     for iter in range(Game.Max_Iterations):
+        if iter > 0:
+            # Start Julia/PATHSolver once for this simulation execution. The main
+            # process and persistent terminal workers are reused by every iteration.
+            initialize_pathsolver_runtime(max_workers=max_workers)
         Game.reset_game()
         Solver1 = DGSolver(
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
