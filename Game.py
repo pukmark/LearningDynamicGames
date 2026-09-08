@@ -153,15 +153,19 @@ class GameDynamics:
                                          )
         
         shared_constraints = []
-        if not self.is_unicycle:
-            velocities = []
+        velocities = []
+        if self.is_unicycle is not True:
             for player, u_sym in enumerate(u_syms):
                 offset = player * self.nx1
                 velocities.append(u_sym if self.is_single_integrator
-                                  else x_sym[offset + 2:offset + 4])
-            shared_constraints.append(
-                4.5 * self.vy_max**2 - sum(ca.sumsqr(v) for v in velocities)
-            )
+                                    else x_sym[offset + 2:offset + 4])
+        else:
+            for player, u_sym in enumerate(u_syms):
+                offset = player * self.nx1
+                velocities.append(x_sym[offset + 2])
+        shared_constraints.append(
+            (self.n_players-1) * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities)
+        )
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1
@@ -169,9 +173,7 @@ class GameDynamics:
                 shared_constraints.append(
                     ca.sumsqr(x_sym[i:i + 2] - x_sym[j:j + 2]) - self.d_sep**2
                 )
-        self.f_shared = ca.Function(
-            'f_shared', [x_sym, *u_syms], shared_constraints
-        )
+        self.f_shared = ca.Function('f_shared', [x_sym, *u_syms], shared_constraints)
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
 
         # Dynamics Function:
@@ -505,19 +507,9 @@ class GameDynamics:
         respects player 1's input bounds.
         """
         
-        if (
-            self.t < 2.5
-            and (
-                self.is_single_integrator
-                or self.is_unicycle
-                or (
-                    abs(self.x[3]) < self.vy_max - 0.5
-                    and abs(self.x[2]) < self.vx_max - 0.5
-                )
-            )
-        ):
+        if self.t < 2.0:
             target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-            target[0] -= 2.0
+            target[1] += 3.0
         else:
             target = np.asarray(self.x1f, dtype=float).reshape(-1)
         
@@ -565,9 +557,9 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        if self.t < 2.2:
+        if self.t < 2.0:
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-            target[0] += 2.0
+            target[0] += 3.0
         else:
             target = np.asarray(self.x2f, dtype=float).reshape(-1)        
         
@@ -611,18 +603,8 @@ class GameDynamics:
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        if (
-            self.t < 1.8
-            and (
-                self.is_single_integrator
-                or self.is_unicycle
-                or (
-                    abs(self.x[3]) < self.vy_max - 0.5
-                    and abs(self.x[2]) < self.vx_max - 0.5
-                )
-            )
-        ):
-            target[1] += 2.5
+        if self.t < 2.5:
+            target[0] += 2.5
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")

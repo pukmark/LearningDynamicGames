@@ -55,9 +55,9 @@ x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.75, 1.55, dynamics_type=dynamics_type)])
 x3f = np.array([player_state(-0.5, -1.5, dynamics_type=dynamics_type)])
 x0_players = (
-    player_state(-1.75, 1.5, psi=np.deg2rad(-45), dynamics_type=dynamics_type),
+    player_state(-1.75, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
     player_state(-0.5, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
-    player_state(1.75, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
+    player_state(0.5, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 
