@@ -33,8 +33,8 @@ v_min = 0.0
 v_max = 2.0
 a_max = 2.0
 psi_max = np.pi  # rad, absolute heading input bound
-pdot_min = -0.5  # rad/s, minimum heading rate for dynamics_type=4
-psidot_max = 0.5  # rad/s, maximum heading rate for dynamics_type=4
+pdot_min = -1.0  # rad/s, minimum heading rate for dynamics_type=4
+psidot_max = 1.0  # rad/s, maximum heading rate for dynamics_type=4
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
 # state and the shared-constraint equilibrium weight. The selection can use
@@ -52,12 +52,12 @@ Niterations = 15
 arrival_tolerance = 0.01
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
-x2f = np.array([player_state(-1.75, 1.5, dynamics_type=dynamics_type)])
+x2f = np.array([player_state(-1.75, 1.55, dynamics_type=dynamics_type)])
 x3f = np.array([player_state(-0.5, -1.5, dynamics_type=dynamics_type)])
 x0_players = (
-    player_state(-1.75, 1.5, dynamics_type=dynamics_type),
-    player_state(-0.5, -2.0, dynamics_type=dynamics_type),
-    player_state(1.75, 1.5, dynamics_type=dynamics_type),
+    player_state(-1.75, 1.5, psi=np.deg2rad(-60), dynamics_type=dynamics_type),
+    player_state(-0.5, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
+    player_state(1.75, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 
@@ -69,7 +69,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the learning dynamic-game simulation.")
     parser.add_argument(
         "--players", type=int, choices=(2, 3),
-        default=2,
+        default=3,
         help="number of players (default: 2 for unicycle, 3 for integrators)",
     )
     parser.add_argument(
@@ -192,7 +192,7 @@ if __name__ == '__main__':
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
             alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-            horizon=6,
+            horizon=8,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             max_workers=max_workers,
             cooperative=cooperative,

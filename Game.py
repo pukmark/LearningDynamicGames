@@ -504,7 +504,7 @@ class GameDynamics:
                 )
             steering = self.heading_rate_control(state[3], desired_heading, 0.5)
         else:
-            steering = np.clip(desired_heading, self.steering_bounds, self.steering_bounds)
+            steering = np.clip(desired_heading, self.steering_bounds*0.7, self.steering_bounds*0.7)
         acceleration = np.clip(speed_gain * (desired_speed - state[2]), -self.a_max*0.5, self.a_max*0.5)
         return np.array([acceleration, steering])
 
@@ -577,7 +577,7 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        if self.t < 2.8:
+        if self.t < 2.2:
             target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
             target[0] += 2.0
         else:
@@ -624,7 +624,7 @@ class GameDynamics:
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
         if (
-            self.t < 2.0
+            self.t < 1.8
             and (
                 self.is_single_integrator
                 or self.is_unicycle
