@@ -220,8 +220,8 @@ if __name__ == '__main__':
                      *([Game.SimpleController3()] if player_count == 3 else []))
                 )
             else:
-                # Keep solving for every player until the joint arrival check
-                # ends the iteration, even when player 1 has already arrived.
+                # Reuse the backup once the prediction reaches all targets;
+                # otherwise solve with recovery for every player.
                 u1 = Solver1.step_with_recovery(
                     Game.t, Game.x, current_cost1=current_cost1,
                     current_cost2=current_cost2,

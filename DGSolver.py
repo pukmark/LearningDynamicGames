@@ -526,6 +526,7 @@ class DGSolver:
         self.Solution.terminal_sample_state = None
         self.Solution.player1_predicted_cost = prev_best_cost
         self.last_solve_success = False
+        self._terminal_backup_active = False
         
         if game.iteration > 1 and self.LearnedData is not None:
             self.backup_controller_init()
@@ -1125,7 +1126,11 @@ class DGSolver:
              forced_alpha=None, u1_0=None, u2_0=None,
              last_attempted_solution=False, use_all_terminal_points=False,
              disagreement_costs=None, previous_iteration_costs=None):
-        """Solve one step using the configured learned terminal-state mode."""
+        """Follow a terminal-reaching backup, or solve for a new prediction."""
+        if getattr(self, "_terminal_backup_active", False) or self._prediction_reaches_target():
+            self._terminal_backup_active = True
+            self.last_solve_success = False
+            return self.backup_controller(x0)
         if self.constraint_mode == "sampled_points" and self.LearnedData is not None:
             return self._step_over_sampled_terminal_states(
                 t, x0, current_cost1=current_cost1, current_cost2=current_cost2,
@@ -1153,7 +1158,7 @@ class DGSolver:
         if not isinstance(max_horizon_extension, (int, np.integer)) or max_horizon_extension < 0:
             raise ValueError("max_horizon_extension must be a nonnegative integer")
         control = self.step(t, x0, **step_kwargs)
-        if self.last_solve_success:
+        if self.last_solve_success or self._terminal_backup_active:
             return control
 
         expanded_kwargs = {**step_kwargs, "use_all_terminal_points": True}
@@ -2335,6 +2340,23 @@ class DGSolver:
         return a_vec1, proximity_factor
         
         
+    def _prediction_reaches_target(self):
+        """Check an accepted prediction for simultaneous arrival of all players."""
+        if (not hasattr(self, "backup") or not hasattr(self, "targets")
+                or not self.Solution.success):
+            return False
+        joint_arrival = np.ones(self.N + 1, dtype=bool)
+        for player, target in enumerate(self.targets):
+            prediction = np.asarray(
+                getattr(self.Solution, f"x{player + 1}", []), dtype=float
+            )
+            if prediction.shape != (self.N + 1, self.game.nx1):
+                return False
+            errors = prediction - target
+            distances = np.einsum("ij,jk,ik->i", errors, self.Qk, errors)
+            joint_arrival &= distances <= self.proximity_minval
+        return bool(np.any(joint_arrival))
+
     def backup_controller_init(self):
         """Initialize from the latest completed run, skipping an in-progress run."""
         cost_fields = [f"p{p + 1}_total_cost" for p in range(self.game.n_players)]

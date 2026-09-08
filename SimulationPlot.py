@@ -421,7 +421,13 @@ def plot_simulation_init(game):
     ax_u.grid(True, alpha=0.3)
     # ax_u.legend(loc="best", ncol=2)
 
+    velocity_constraint_text = None
     if ax_velocity is not None:
+        velocity_constraint_text = ax_velocity.text(
+            0.02, 0.97, "", transform=ax_velocity.transAxes,
+            ha="left", va="top", fontsize=8,
+            bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.85},
+        )
         lines["p1_v"], = ax_velocity.plot([], [], "C0-", label="P1 v")
         lines["p2_v"], = ax_velocity.plot([], [], "C1-", label="P2 v")
         if game.n_players == 3:
@@ -520,6 +526,7 @@ def plot_simulation_init(game):
         "ax_xy": ax_xy,
         "ax_u": ax_u,
         "ax_velocity": ax_velocity,
+        "velocity_constraint_text": velocity_constraint_text,
         "ax_cost": ax_cost,
         "ax_distance": ax_distance,
         "ax_bargaining": ax_bargaining,
@@ -1075,6 +1082,18 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
             p3_speed = (x[:, p3_i + 2] if game.is_unicycle else
                         np.linalg.norm(x[:, p3_i + 2:p3_i + 4], axis=1))
             lines["p3_v"].set_data(t, p3_speed)
+
+        speed_sum_squares = float(p1_speed[-1]**2 + p2_speed[-1]**2)
+        if game.n_players == 3:
+            speed_sum_squares += float(p3_speed[-1]**2)
+        shared_velocity_limit = 0.5 * game.n_players * game.v_max**2
+        state["velocity_constraint_text"].set_text(
+            rf"$\sum_i \|v_i\|^2 = {speed_sum_squares:.3f}$"
+            + f" / {shared_velocity_limit:.3f} (shared limit)"
+        )
+        state["velocity_constraint_text"].set_color(
+            "C3" if speed_sum_squares > shared_velocity_limit else "black"
+        )
 
         if solution is not None and hasattr(solution, "x1") and hasattr(solution, "x2"):
             predicted_x1 = np.asarray(solution.x1, dtype=float)
