@@ -192,7 +192,7 @@ if __name__ == '__main__':
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
             alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-            horizon=8,
+            horizon=6,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             max_workers=max_workers,
             cooperative=cooperative,
