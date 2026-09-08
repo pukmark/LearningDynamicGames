@@ -9,6 +9,7 @@ class GameDynamics:
     POSITION_OUTSIDE_BOUNDS = 2
     VELOCITY_OUTSIDE_BOUNDS = 3
     SHARED_CONSTRAINT_VIOLATED = 4
+    PRIVATE_CONSTRAINT_VIOLATED = 5
     STEP_OK = 0
     
     eps = 5e-3
@@ -32,7 +33,7 @@ class GameDynamics:
         v_max=2.5,
         a_max=10.0,
         psi_max=2*np.pi,
-        d_sep=0.3,
+        d_sep=0.6,
         dynamics_type=3,
         MaxIterations=50,
         psidot_min=-1.5,
@@ -133,8 +134,6 @@ class GameDynamics:
             steering_min, steering_max = self.steering_bounds
             self.f_private = ca.Function(
                 'f_private', [x1_sym, u1_sym], [
-                    x1_sym[2] - self.v_min,
-                    self.v_max - x1_sym[2],
                     u1_sym[0] + self.a_max,
                     self.a_max - u1_sym[0],
                     u1_sym[1] - steering_min,
@@ -368,36 +367,43 @@ class GameDynamics:
             return ca.vertcat(*components)
         return np.asarray(components, dtype=float)
 
+    def _private_constraints_satisfied(self, state, controls):
+        """Evaluate each player's private residuals using the optimizer's convention."""
+        if not np.all(np.isfinite(state)):
+            return False
+        for player, control in enumerate(controls):
+            if not np.all(np.isfinite(control)):
+                return False
+            start = player * self.nx1
+            residuals = self.f_private(state[start:start + self.nx1], control)
+            if not isinstance(residuals, (tuple, list)):
+                residuals = (residuals,)
+            for residual in residuals:
+                values = np.asarray(residual, dtype=float)
+                if not np.all(np.isfinite(values)) or np.any(values < -self.eps):
+                    return False
+        return True
+
     def step(self, u):
         """
         Advance the internal state one time step using RK4 integration.
 
         Returns:
             0: step went ok
-            1: input outside bounds
-            2: position outside bounds after integration
-            3: velocity outside bounds after integration
+            4: shared constraint violated
+            5: private constraint violated or nonfinite state/input
         """
         u = np.asarray(u, dtype=float)
         if u.shape != (self.nu,):
             raise ValueError(f"u must have shape ({self.nu},)")
         self.u = u
 
-        # Reject invalid controls before changing the internal state.
-        if self.is_unicycle:
-            accelerations = u[0::2]
-            steering = u[1::2]
-            steering_min, steering_max = self.steering_bounds
-            invalid_input = (
-                np.any(np.abs(accelerations) > self.a_max + self.eps)
-                # or np.any(steering < steering_min - self.eps)
-                # or np.any(steering > steering_max + self.eps)
-            )
-        else:
-            invalid_input = np.any(u < self.u_min-self.eps) or np.any(u > self.u_max+self.eps)
-        if invalid_input:
-            self._log_history(u, self.INPUT_OUTSIDE_BOUNDS)
-            return self.INPUT_OUTSIDE_BOUNDS
+        controls = [u[p * self.nu1:(p + 1) * self.nu1]
+                    for p in range(self.n_players)]
+        # Reject private violations before applying the proposed control.
+        if not self._private_constraints_satisfied(self.x, controls):
+            self._log_history(u, self.PRIVATE_CONSTRAINT_VIOLATED)
+            return self.PRIVATE_CONSTRAINT_VIOLATED
 
         x = self.x
         dt = self.dt
@@ -410,43 +416,10 @@ class GameDynamics:
         self.x = x_next
         self.t += dt
 
-        # Check axis-aligned position bounds for both players.
-        xs = self.x[0::self.nx1]
-        ys = self.x[1::self.nx1]
+        if not self._private_constraints_satisfied(self.x, controls):
+            self._log_history(u, self.PRIVATE_CONSTRAINT_VIOLATED)
+            return self.PRIVATE_CONSTRAINT_VIOLATED
 
-        if (
-            np.any(xs < self.x_min-self.eps)
-            or np.any(xs > self.x_max+self.eps)
-            or np.any(ys < self.y_min-self.eps)
-            or np.any(ys > self.y_max+self.eps)
-        ):
-            self._log_history(u, self.POSITION_OUTSIDE_BOUNDS)
-            return self.POSITION_OUTSIDE_BOUNDS
-
-        if self.is_unicycle:
-            speeds = self.x[2::self.nx1]
-            if (
-                np.any(speeds < self.v_min - self.eps)
-                or np.any(speeds > self.v_max + self.eps)
-            ):
-                self._log_history(u, self.VELOCITY_OUTSIDE_BOUNDS)
-                return self.VELOCITY_OUTSIDE_BOUNDS
-        elif not self.is_single_integrator:
-            vxs = self.x[2::self.nx1]
-            vys = self.x[3::self.nx1]
-            if (
-                np.any(vxs < self.vx_min-self.eps)
-                or np.any(vxs > self.vx_max+self.eps)
-                or np.any(vys < self.vy_min-self.eps)
-                or np.any(vys > self.vy_max+self.eps)
-            ):
-                self._log_history(u, self.VELOCITY_OUTSIDE_BOUNDS)
-                return self.VELOCITY_OUTSIDE_BOUNDS
-        
-        controls = [
-            self.u[p * self.nu1:(p + 1) * self.nu1]
-            for p in range(self.n_players)
-        ]
         f_shared = self.f_shared(self.x, *controls)
         if not isinstance(f_shared, tuple):
             f_shared = (f_shared,)
@@ -468,7 +441,7 @@ class GameDynamics:
         self.iteration += 1
 
     def _unicycle_goal_controller(
-        self, player, target, position_gain=0.75,
+        self, player, target, position_gain=1.0,
         speed_gain=3.0,
     ):
         """Bounded point-tracking controller for the unicycle bootstrap."""
@@ -481,7 +454,10 @@ class GameDynamics:
             desired_heading = np.arctan2(error[1], error[0])
         else:
             desired_heading = 0.0
-        desired_speed = max(self.v_min, min(self.v_max / 2, position_gain * distance))
+        if player == 0:
+            desired_speed = max(self.v_min, min(0.75, position_gain * distance))
+        else:
+            desired_speed = max(self.v_min, min(1.5, position_gain * distance))
         if self.has_heading_state:
             if distance <= 1e-3:
                 desired_heading = target[3]

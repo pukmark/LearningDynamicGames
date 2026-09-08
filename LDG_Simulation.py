@@ -3,7 +3,6 @@ os.system('clear')
 import argparse
 import numpy as np
 import casadi as ca
-import copy
 
 from Game import GameDynamics
 from DGSolver import DGSolver, initialize_pathsolver_runtime
@@ -50,12 +49,12 @@ x2f = np.array([player_state(-1.75, 1.55, dynamics_type=dynamics_type)])
 x3f = np.array([player_state(-0.5, -1.5, dynamics_type=dynamics_type)])
 x0_players = (
     player_state(-1.75, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
-    player_state(-0.5, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
-    player_state(0.5, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
+    player_state(1.0, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
+    player_state(2.0, 2.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 
-max_workers = max(1, int(os.cpu_count() * 0.33))
+max_workers = min(20, max(1, int(os.cpu_count() * 0.33)))
 # max_workers = 1
         
 
@@ -221,71 +220,15 @@ if __name__ == '__main__':
                      *([Game.SimpleController3()] if player_count == 3 else []))
                 )
             else:
-                if float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f)) <= 1e-8:
-                    u1 = np.zeros(Game.nu)
-                # Player 1 Controller
-                elif (getattr(Solver1.Solution, "terminal_sample_state", None) is not None and 
-                      float(ca.bilin(Solver1.Qk, Solver1.Solution.terminal_sample_state[:Game.nx1] - Game.x1f)) <= 1e-8 and
-                      float(ca.bilin(Solver1.Qk, Game.x[Game.nx1:2 * Game.nx1] - Game.x2f)) <= 1e-8 and
-                      (0 if player_count < 3 else float(ca.bilin(Solver1.Qk, Game.x[2*Game.nx1:] - Game.x3f)))  <= 1e-8 and
-                      Solver1.Solution.success and iter > 0):
-                    Solver1.Solution.indx += 1
-                    u1 = np.concatenate([
-                        getattr(Solver1.Solution, f"u{player + 1}")[Solver1.Solution.indx]
-                        for player in range(player_count)
-                    ])
-                else:
-                    indx = getattr(Solver1.Solution, "indx", 0)
-                    if not Solver1.Solution.success and indx >= int(Solver1.N):
-                        u1 = Solver1.step(
-                            Game.t, Game.x, current_cost1=current_cost1,
-                            current_cost2=current_cost2,
-                            current_cost3=current_cost3,
-                            use_all_terminal_points=True,
-                            disagreement_costs=active_disagreement_costs,
-                            previous_iteration_costs=previous_iteration_costs,
-                        )
-                    else:
-                        u1 = Solver1.step(
-                            Game.t, Game.x, current_cost1=current_cost1,
-                            current_cost2=current_cost2,
-                            current_cost3=current_cost3,
-                            disagreement_costs=active_disagreement_costs,
-                            previous_iteration_costs=previous_iteration_costs,
-                        )
-                        indx = getattr(Solver1.Solution, "indx", 0)
-                        if indx > 0:
-                            Found = False
-                            u1_N = np.zeros(Game.nu)
-                            for dN in [1, 2, 3]:
-                                Solver1_N = DGSolver(
-                                    Game, x1f=x1f, x2f=x2f,
-                                    x3f=x3f if player_count == 3 else None,
-                                    LearnedData=LearnedData,
-                                    alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-                                    max_workers=max_workers,
-                                    prev_best_cost=(
-                                        prev_p1_total_cost if iter > 0 else np.inf
-                                    ),
-                                    horizon=Solver1.N+dN,
-                                    cooperative=cooperative,
-                                    bargaining_gammas=gamma_grid,
-                                    cooperative_selection=selection_method,
-                                    cooperative_cost_weights=cost_weights,
-                                    disagreement_costs=baseline_costs,
-                                )
-                                u1_N = Solver1_N.step(
-                                    Game.t, Game.x, current_cost1=current_cost1,
-                                    current_cost2=current_cost2,
-                                    current_cost3=current_cost3,
-                                    disagreement_costs=active_disagreement_costs,
-                                    previous_iteration_costs=previous_iteration_costs,
-                                )
-                                if Solver1_N.Solution.success:
-                                    Found = True
-                                    Solver1.Solution = copy.deepcopy(Solver1_N.Solution)
-                                    u1 = u1_N
-                                    break
+                # Keep solving for every player until the joint arrival check
+                # ends the iteration, even when player 1 has already arrived.
+                u1 = Solver1.step_with_recovery(
+                    Game.t, Game.x, current_cost1=current_cost1,
+                    current_cost2=current_cost2,
+                    current_cost3=current_cost3,
+                    disagreement_costs=active_disagreement_costs,
+                    previous_iteration_costs=previous_iteration_costs,
+                )
                         
                                 
             # calculate current cost for player 1:
@@ -391,7 +334,7 @@ if __name__ == '__main__':
             iter,
             Game,
             Solver1,
-            iterations_to_use = max(4, int(max_workers/7)))
+            iterations_to_use = 4)
 
         LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
         if not cooperative and iter > 0 and should_reduce_alpha(

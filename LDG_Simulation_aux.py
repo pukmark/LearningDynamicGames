@@ -51,6 +51,7 @@ def init_analyzed_data():
     analyzed_data = SimpleNamespace()
     analyzed_data.t = []
     analyzed_data.state = []
+    analyzed_data.occurrences = []
     analyzed_data.u2 = []
     analyzed_data.Cost2Go = []
     analyzed_data.Cost2Go2 = []
@@ -165,9 +166,8 @@ def rebuild_analyzed_data(
     """Rebuild analyzed data using only the latest RawData iterations."""
     analyzed_data = init_analyzed_data()
     first_iteration = max(0, current_iteration - iterations_to_use + 1)
-    stop_iteration = first_iteration - 1 if first_iteration > 0 else None
-
-    for raw_data in learned_data.RawData[current_iteration + 1:stop_iteration:-1]:
+    for raw_iteration in range(current_iteration, first_iteration - 1, -1):
+        raw_data = learned_data.RawData[raw_iteration]
         states = raw_data.x
         stage_costs = getattr(solver, "stage_costs", None)
         if stage_costs is None:
@@ -210,16 +210,17 @@ def rebuild_analyzed_data(
         else:
             p3_costs_to_go = [np.nan] * len(states)
 
-        for t, state, u, p1_cost_to_go, p2_cost_to_go, p3_cost_to_go in zip(
+        for raw_index, (t, state, u, p1_cost_to_go, p2_cost_to_go, p3_cost_to_go) in enumerate(zip(
             raw_data.t,
             states,
             raw_data.u,
             p1_costs_to_go,
             p2_costs_to_go,
             p3_costs_to_go,
-        ):
+        )):
             analyzed_data.t.append(t)
             analyzed_data.state.append(state)
+            analyzed_data.occurrences.append((raw_iteration, raw_index))
 
             # analyzed_data.c.append(np.array([cx_min, cx_max, cy_min, cy_max]))
             analyzed_data.Cost2Go.append(p1_cost_to_go)

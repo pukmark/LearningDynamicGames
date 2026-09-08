@@ -527,7 +527,7 @@ class DGSolver:
         self.Solution.player1_predicted_cost = prev_best_cost
         self.last_solve_success = False
         
-        if game.iteration > 1 and LearnedData is not None:
+        if game.iteration > 1 and self.LearnedData is not None:
             self.backup_controller_init()
 
     def _learned_player2_action(self, a_set):
@@ -1148,6 +1148,44 @@ class DGSolver:
             return self.backup_controller(x0)
         return control
 
+    def step_with_recovery(self, t, x0, max_horizon_extension=3, **step_kwargs):
+        """Expand a failed search, retaining the full solver and backup on success."""
+        if not isinstance(max_horizon_extension, (int, np.integer)) or max_horizon_extension < 0:
+            raise ValueError("max_horizon_extension must be a nonnegative integer")
+        control = self.step(t, x0, **step_kwargs)
+        if self.last_solve_success:
+            return control
+
+        expanded_kwargs = {**step_kwargs, "use_all_terminal_points": True}
+        if not step_kwargs.get("use_all_terminal_points", False):
+            control = self.step(t, x0, **expanded_kwargs)
+            if self.last_solve_success:
+                return control
+
+        for extension in range(1, max_horizon_extension + 1):
+            # Preserve all current costs/options and the retained continuation.
+            # Reconstructing from RawData here could select the unfinished run.
+            retry = copy.copy(self)
+            retry.N = self.N + extension
+            retry.alpha_vec = np.concatenate((
+                self.alpha_vec,
+                np.repeat(self.alpha_vec[[-1]], extension, axis=0),
+            ))
+            retry.Solution = copy.deepcopy(self.Solution)
+            if hasattr(self, "backup"):
+                retry.backup = copy.deepcopy(self.backup)
+            retry.Solver = None
+            retry.solver = None
+            retry.is_built = False
+            retry._sampled_solver_cache = {}
+            retry_control = retry.step(t, x0, **expanded_kwargs)
+            if retry.last_solve_success:
+                self.__dict__.update(retry.__dict__)
+                return retry_control
+
+        # Failed trials must not replace the original retained backup/control.
+        return control
+
     def _step_over_sampled_terminal_states(
         self, t, x0, current_cost1=0.0, current_cost2=0.0,
         current_cost3=0.0,
@@ -1161,6 +1199,9 @@ class DGSolver:
         Cost2Go = np.asarray(analyzed.Cost2Go)
         Cost2Go2 = np.asarray(analyzed.Cost2Go2)
         sample_times = np.asarray(analyzed.t)
+        occurrences = np.asarray(getattr(analyzed, "occurrences", []), dtype=int)
+        if occurrences.size and occurrences.shape != (len(states), 2):
+            raise ValueError("terminal occurrences must align with the analyzed states")
         previous_solution = copy.deepcopy(self.Solution)
         terminal_sample_index = getattr(previous_solution, "terminal_sample_index", -1)
         prev_cost2go = Cost2Go[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
@@ -1200,6 +1241,8 @@ class DGSolver:
             candidate_data = copy.deepcopy(self.LearnedData)
             candidate = candidate_data.AnalyzedData
             fields = ("t", "state", "Cost2Go", "Cost2Go2")
+            if occurrences.size:
+                fields += ("occurrences",)
             if self.game.n_players == 3:
                 fields += ("Cost2Go3",)
             if not self.cooperative:
@@ -1431,6 +1474,9 @@ class DGSolver:
                 best_solution.terminal_sample_index = sample_index
                 best_solution.terminal_sample_time = float(sample_times[sample_index])
                 best_solution.terminal_sample_state = states[sample_index].copy()
+                best_solution.terminal_occurrence = (
+                    tuple(occurrences[sample_index]) if occurrences.size else None
+                )
                 best_solution.player1_cost = cost1
                 best_solution.player2_cost = cost2
                 best_solution.player1_predicted_cost = current_cost1 + cost1
@@ -2290,26 +2336,34 @@ class DGSolver:
         
         
     def backup_controller_init(self):
+        """Initialize from the latest completed run, skipping an in-progress run."""
+        cost_fields = [f"p{p + 1}_total_cost" for p in range(self.game.n_players)]
+        completed = [raw for raw in self.LearnedData.RawData
+                     if all(getattr(raw, field, None) is not None
+                            and np.isfinite(getattr(raw, field)) for field in cost_fields)]
+        if not completed:
+            raise ValueError("backup initialization requires a completed iteration")
+        raw_data = completed[-1]
         self.backup = SimpleNamespace()
         self.backup.time = np.asarray(
-            self.LearnedData.RawData[-1].t, dtype=float
+            raw_data.t, dtype=float
         ).copy()
         self.backup.x = np.asarray(
-            self.LearnedData.RawData[-1].x, dtype=float
+            raw_data.x, dtype=float
         ).copy()
         self.backup.u = np.asarray(
-            self.LearnedData.RawData[-1].u, dtype=float
+            raw_data.u, dtype=float
         ).copy()
-        self.backup.cost1 = self.LearnedData.RawData[-1].p1_total_cost
-        self.backup.cost2 = self.LearnedData.RawData[-1].p2_total_cost
+        for player, field in enumerate(cost_fields):
+            setattr(self.backup, f"cost{player + 1}", float(getattr(raw_data, field)))
         self.backup.indx = 0
         
     def backup_controller_update(self, Solution):
         """Replace the backup with ``Solution`` followed by a learned suffix.
 
         The optimized trajectory ends at a state sampled from a previous safe
-        trajectory.  Locate that state in ``LearnedData.RawData`` and splice
-        the remainder of the saved trajectory onto the optimized prefix.  A
+        trajectory. Use its selected iteration/sample identity to splice
+        the same saved continuation onto the optimized prefix. A
         state is stored once at the splice, while its saved control is retained
         because it drives the system from the terminal state toward the next
         saved state.
@@ -2367,10 +2421,18 @@ class DGSolver:
         terminal_sample_time = float(
             getattr(Solution, "terminal_sample_time", np.nan)
         )
+        occurrence = getattr(Solution, "terminal_occurrence", None)
+        if occurrence is not None:
+            if (len(occurrence) != 2
+                    or any(not isinstance(value, (int, np.integer)) or value < 0
+                           for value in occurrence)
+                    or occurrence[0] >= len(self.LearnedData.RawData)):
+                raise ValueError("invalid terminal occurrence (iteration, sample index)")
+            raw_candidates = [(occurrence[0], self.LearnedData.RawData[occurrence[0]])]
+        else:
+            raw_candidates = reversed(list(enumerate(self.LearnedData.RawData)))
         matches = []
-        for raw_iteration, raw_data in reversed(
-            list(enumerate(self.LearnedData.RawData))
-        ):
+        for raw_iteration, raw_data in raw_candidates:
             raw_states = np.asarray(raw_data.x, dtype=float)
             raw_times = np.asarray(raw_data.t, dtype=float).reshape(-1)
             raw_controls = np.asarray(raw_data.u, dtype=float)
@@ -2395,6 +2457,8 @@ class DGSolver:
                 )
             )
             for raw_index in state_matches:
+                if occurrence is not None and raw_index != occurrence[1]:
+                    continue
                 time_error = (
                     abs(raw_times[raw_index] - terminal_sample_time)
                     if np.isfinite(terminal_sample_time)
@@ -2409,7 +2473,14 @@ class DGSolver:
                 "the solution terminal safe state was not found in LearnedData.RawData"
             )
 
-        _, _, raw_index, raw_data = min(matches, key=lambda match: match[:3])
+        best_time_error = min(match[0] for match in matches)
+        closest_matches = [match for match in matches
+                           if np.isclose(match[0], best_time_error, rtol=0.0, atol=1e-9)]
+        if occurrence is None and len(closest_matches) > 1:
+            raise ValueError(
+                "ambiguous terminal occurrence; rebuild analyzed data to record source indices"
+            )
+        _, negative_raw_iteration, raw_index, raw_data = closest_matches[0]
         raw_states = np.asarray(raw_data.x, dtype=float)
         raw_controls = np.asarray(raw_data.u, dtype=float)
         raw_times = np.asarray(raw_data.t, dtype=float).reshape(-1)
@@ -2429,6 +2500,7 @@ class DGSolver:
         )
 
         backup = SimpleNamespace()
+        backup.terminal_occurrence = (-negative_raw_iteration, raw_index)
         backup.time = np.concatenate(
             (solution_control_times, learned_suffix_times)
         )
