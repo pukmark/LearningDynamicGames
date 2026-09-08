@@ -16,7 +16,7 @@ def save_learned_data(learned_data, path="LearnedData.pkl"):
     return path
 
 
-def load_learned_data(path="LearnedData.pkl"):
+def load_learned_data(path="./Results/LearnedData.pkl"):
     """Load learned simulation data from a trusted pickle file."""
     path = Path(path)
     with path.open("rb") as file:

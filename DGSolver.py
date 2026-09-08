@@ -2022,9 +2022,9 @@ class DGSolver:
         PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
         status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
             nnz=nnz, output="{output}", convergence_tolerance=tol,
-            nms="{nms}", crash_nbchange_limit=25, major_iteration_limit=250,
-            minor_iteration_limit=5000, cumulative_iteration_limit=50000,
-            restart_limit=50)
+            nms="{nms}", crash_nbchange_limit=50, major_iteration_limit=500,
+            minor_iteration_limit=10000, cumulative_iteration_limit=100000,
+            restart_limit=100)
         return z, status == PATHSolver.MCP_Solved, info.residual, status
         """)
         
