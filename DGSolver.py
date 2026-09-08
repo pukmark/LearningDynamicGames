@@ -1032,17 +1032,17 @@ class DGSolver:
             lagrangians.append(Lp)
 
         shared, shared_stages = [], []
-        # for k in range(self.N + 1):
-        #     controls = ([us[p][k, :] for p in range(player_count)]
-        #                 if k < self.N else
-        #                 [ca.DM.zeros(self.game.nu1) for _ in range(player_count)])
-        #     values = self.game.f_shared(ca.horzcat(*[x[k, :] for x in xs]), *controls)
-        #     if not isinstance(values, tuple):
-        #         values = (values,)
-        #     for value in values:
-        #         if is_symbolic_expr(value):
-        #             shared.append(value)
-        #             shared_stages.append(k)
+        for k in range(self.N + 1):
+            controls = ([us[p][k, :] for p in range(player_count)]
+                        if k < self.N else
+                        [ca.DM.zeros(self.game.nu1) for _ in range(player_count)])
+            values = self.game.f_shared(ca.horzcat(*[x[k, :] for x in xs]), *controls)
+            if not isinstance(values, tuple):
+                values = (values,)
+            for value in values:
+                if is_symbolic_expr(value):
+                    shared.append(value)
+                    shared_stages.append(k)
         sg_vec = ca.vertcat(*shared)
         alpha1_k = ca.vertcat(*[alpha_vec[k, 0] for k in shared_stages])
         alpha2_k = ca.vertcat(*[alpha_vec[k, 1] for k in shared_stages])
