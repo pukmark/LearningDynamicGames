@@ -338,17 +338,17 @@ def _solve_sampled_terminal_gamma_sequence(
                 f"{type(exc).__name__}: {exc}",
             )
         results.append(result)
-        solution = result[4]
-        if gamma_offset == 0 and solution is None:
-            break
-        if solution is not None and solution_has_no_interaction(
-            solution, worker_solver.sigma_zero_tolerance
-        ):
-            solution.gamma_independent = True
-            solution.skipped_bargaining_gammas = np.asarray(
-                gammas[gamma_offset + 1:], dtype=float
-            )
-            break
+        # solution = result[4]
+        # if gamma_offset == 0 and solution is None:
+        #     break
+        # if solution is not None and solution_has_no_interaction(
+        #     solution, worker_solver.sigma_zero_tolerance
+        # ):
+        #     solution.gamma_independent = True
+        #     solution.skipped_bargaining_gammas = np.asarray(
+        #         gammas[gamma_offset + 1:], dtype=float
+        #     )
+        #     break
     return results
 
 
@@ -1313,9 +1313,9 @@ class DGSolver:
                     #     continue
 
                     candidate_solution = copy.deepcopy(self.Solution)
-                    no_interaction = solution_has_no_interaction(
-                        candidate_solution, self.sigma_zero_tolerance
-                    )
+                    # no_interaction = solution_has_no_interaction(
+                    #     candidate_solution, self.sigma_zero_tolerance
+                    # )
                     # if no_interaction:
                     #     candidate_solution.gamma_independent = True
                     #     candidate_solution.skipped_bargaining_gammas = np.asarray(
