@@ -30,10 +30,10 @@ class GameDynamics:
         vy_min=-2,
         vy_max=2,
         v_min=0.0,
-        v_max=2.5,
+        v_max=2.0,
         a_max=10.0,
         psi_max=2*np.pi,
-        d_sep=0.6,
+        d_sep=0.5,
         dynamics_type=3,
         MaxIterations=50,
         psidot_min=-1.5,
@@ -441,8 +441,8 @@ class GameDynamics:
         self.iteration += 1
 
     def _unicycle_goal_controller(
-        self, player, target, position_gain=1.0,
-        speed_gain=3.0,
+        self, player, target, position_gain=0.75,
+        speed_gain=6.0,
     ):
         """Bounded point-tracking controller for the unicycle bootstrap."""
         offset = player * self.nx1
@@ -457,7 +457,7 @@ class GameDynamics:
         if player == 0:
             desired_speed = max(self.v_min, min(0.75, position_gain * distance))
         else:
-            desired_speed = max(self.v_min, min(1.5, position_gain * distance))
+            desired_speed = max(self.v_min, min(1.25, position_gain * distance))
         if self.has_heading_state:
             if distance <= 1e-3:
                 desired_heading = target[3]
@@ -575,8 +575,9 @@ class GameDynamics:
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        if self.t < 1.5:
-            target[0] += 1.0
+        if self.t < 3.0:
+            target[0] -= 1.0
+            target[1] += 3.0
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")

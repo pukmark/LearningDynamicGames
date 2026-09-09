@@ -36,6 +36,8 @@ cooperative_mode = True
 bargaining_gammas = np.array([0.5])
 bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
 bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
+# bargaining_gamma1 = np.array([1/3.0])
+# bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
@@ -186,7 +188,7 @@ if __name__ == '__main__':
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
             alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-            horizon=7,
+            horizon=5,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             max_workers=max_workers,
             cooperative=cooperative,
@@ -307,8 +309,8 @@ if __name__ == '__main__':
                 current_cost2 += current_terminal_cost
             else:
                 current_cost3 += current_terminal_cost
-        if GameFlag is Game.STEP_OK:
-            append_terminal_learned_state(LearnedData, Game, iter)
+        # if GameFlag is Game.STEP_OK:
+        #     append_terminal_learned_state(LearnedData, Game, iter)
         
         iteration_costs = [current_cost1, current_cost2]
         if player_count == 3:
@@ -334,7 +336,7 @@ if __name__ == '__main__':
             iter,
             Game,
             Solver1,
-            iterations_to_use = 4)
+            iterations_to_use = 3)
 
         LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
         if not cooperative and iter > 0 and should_reduce_alpha(

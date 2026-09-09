@@ -1213,17 +1213,20 @@ class DGSolver:
         prev_cost2go2 = Cost2Go2[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
+        previous_terminal_state = getattr(previous_solution, "terminal_sample_state", None)
         distance_to_terminal = np.linalg.norm(states[:,:2] - x0[:2], axis=1)
+        distance_to_previous_terminal_state = np.linalg.norm(states[:,:2] - previous_terminal_state[:2], axis=1) if previous_terminal_state is not None else np.inf*np.ones_like(distance_to_terminal)
         if not use_all_terminal_points:
             if self.cooperative:
                 cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) & (Cost2Go2 <= prev_cost2go2 + self.cost_tol)
             else:
                 cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
                 
-            horizon_search = np.clip(6-self.game.iteration, 1.5, 4)*self.N * self.dt
+            horizon_search = np.clip(4-self.game.iteration/2, 1.5, 3)*self.N * self.dt
             candidate_indices = np.where(
                 cost_filter
-                & (sample_times <= previous_sample_time + horizon_search)
+                & ((sample_times <= previous_sample_time + horizon_search)
+                   | (distance_to_previous_terminal_state < 0.25))
                 & (distance_to_terminal <= (
                     self.game.v_max if self.game.is_unicycle
                     else np.sqrt(2) * self.game.vx_max
@@ -2102,9 +2105,9 @@ class DGSolver:
         PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
         status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
             nnz=nnz, output="{output}", convergence_tolerance=tol,
-            nms="{nms}", crash_nbchange_limit=50, major_iteration_limit=500,
-            minor_iteration_limit=10000, cumulative_iteration_limit=100000,
-            restart_limit=100)
+            nms="{nms}", crash_nbchange_limit=25, major_iteration_limit=250,
+            minor_iteration_limit=5000, cumulative_iteration_limit=50000,
+            restart_limit=50)
         return z, status == PATHSolver.MCP_Solved, info.residual, status
         """)
         
