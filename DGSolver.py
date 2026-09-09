@@ -1124,7 +1124,7 @@ class DGSolver:
     def step(self, t, x0, current_cost1=0.0, current_cost2=0.0,
              current_cost3=0.0,
              forced_alpha=None, u1_0=None, u2_0=None,
-             last_attempted_solution=False, use_all_terminal_points=False,
+             last_attempted_solution=False, Extended_Horizon=False,
              disagreement_costs=None, previous_iteration_costs=None):
         """Follow a terminal-reaching backup, or solve for a new prediction."""
         if getattr(self, "_terminal_backup_active", False) or self._prediction_reaches_target():
@@ -1137,7 +1137,7 @@ class DGSolver:
                 current_cost3=current_cost3,
                 forced_alpha=forced_alpha, u1_0=u1_0, u2_0=u2_0,
                 last_attempted_solution=last_attempted_solution,
-                use_all_terminal_points=use_all_terminal_points,
+                Extended_Horizon=Extended_Horizon,
                 disagreement_costs=disagreement_costs,
                 previous_iteration_costs=previous_iteration_costs,
             )
@@ -1161,8 +1161,8 @@ class DGSolver:
         if self.last_solve_success or self._terminal_backup_active:
             return control
 
-        expanded_kwargs = {**step_kwargs, "use_all_terminal_points": True}
-        if not step_kwargs.get("use_all_terminal_points", False):
+        expanded_kwargs = {**step_kwargs, "Extended_Horizon": True}
+        if not step_kwargs.get("Extended_Horizon", False):
             control = self.step(t, x0, **expanded_kwargs)
             if self.last_solve_success:
                 return control
@@ -1195,7 +1195,7 @@ class DGSolver:
         self, t, x0, current_cost1=0.0, current_cost2=0.0,
         current_cost3=0.0,
         forced_alpha=None, u1_0=None, u2_0=None,
-        last_attempted_solution=False, use_all_terminal_points=False,
+        last_attempted_solution=False, Extended_Horizon=False,
         disagreement_costs=None, previous_iteration_costs=None,
     ):
         """Enumerate safe-set states and, in cooperative mode, bargaining weights."""
@@ -1203,39 +1203,41 @@ class DGSolver:
         states = np.asarray(analyzed.state)
         Cost2Go = np.asarray(analyzed.Cost2Go)
         Cost2Go2 = np.asarray(analyzed.Cost2Go2)
+        Cost2Go3 = np.asarray(getattr(analyzed, "Cost2Go3", np.inf), dtype=float)
         sample_times = np.asarray(analyzed.t)
         occurrences = np.asarray(getattr(analyzed, "occurrences", []), dtype=int)
         if occurrences.size and occurrences.shape != (len(states), 2):
             raise ValueError("terminal occurrences must align with the analyzed states")
         previous_solution = copy.deepcopy(self.Solution)
         terminal_sample_index = getattr(previous_solution, "terminal_sample_index", -1)
-        prev_cost2go = Cost2Go[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
-        prev_cost2go2 = Cost2Go2[terminal_sample_index]+10.0 if terminal_sample_index >= 0 else np.inf
+        prev_cost2go = Cost2Go[terminal_sample_index] if terminal_sample_index >= 0 else np.inf
+        prev_cost2go2 = Cost2Go2[terminal_sample_index] if terminal_sample_index >= 0 else np.inf
+        prev_cost2go3 = getattr(previous_solution, "Cost2Go3", np.inf) if terminal_sample_index >= 0 else np.inf
         a_set, proximity_factor = self.calc_a_set(x0)
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         previous_terminal_state = getattr(previous_solution, "terminal_sample_state", None)
         distance_to_terminal = np.linalg.norm(states[:,:2] - x0[:2], axis=1)
         distance_to_previous_terminal_state = np.linalg.norm(states[:,:2] - previous_terminal_state[:2], axis=1) if previous_terminal_state is not None else np.inf*np.ones_like(distance_to_terminal)
-        if not use_all_terminal_points:
-            if self.cooperative:
-                cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) & (Cost2Go2 <= prev_cost2go2 + self.cost_tol)
-            else:
-                cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
-                
-            horizon_search = np.clip(4-self.game.iteration/2, 1.5, 3)*self.N * self.dt
-            candidate_indices = np.where(
-                cost_filter
-                & ((sample_times <= previous_sample_time + horizon_search)
-                   | (distance_to_previous_terminal_state < 0.25))
-                & (distance_to_terminal <= (
-                    self.game.v_max if self.game.is_unicycle
-                    else np.sqrt(2) * self.game.vx_max
-                ) * self.N * self.dt)
-                & (sample_times > t + (self.N-1) * self.dt - 1e-5)
-                
-            )[0]
+        if self.cooperative:
+            cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) & (Cost2Go2 <= prev_cost2go2 + self.cost_tol) & (Cost2Go3 <= prev_cost2go3 + self.cost_tol)
         else:
-            candidate_indices = np.where( (sample_times >= t-self.N*self.dt) )[0]
+            cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
+        if not Extended_Horizon:
+            horizon_search = np.clip(4-self.game.iteration/2, 1.5, 3)*self.N * self.dt
+        else:
+            horizon_search = 3*self.N * self.dt
+        candidate_indices = np.where(
+            cost_filter
+            & ((sample_times <= previous_sample_time + horizon_search)
+                | (distance_to_previous_terminal_state < 0.25))
+            & (distance_to_terminal <= (
+                self.game.v_max if self.game.is_unicycle
+                else np.sqrt(2) * self.game.vx_max
+            ) * self.N * self.dt)
+            & (sample_times > t + (self.N-1) * self.dt - 1e-5)
+            
+        )[0]
+
         if candidate_indices.shape[0]==0:
             candidate_indices = np.where((states[:,0] == self.game.x1f[0,0]) & (states[:,1] == self.game.x2f[0,1]))[0]
         candidate_indices = np.asarray(candidate_indices, dtype=int)

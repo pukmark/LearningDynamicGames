@@ -34,10 +34,10 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
-bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
-# bargaining_gamma1 = np.array([1/3.0])
-# bargaining_gamma2 = np.array([1/3.0])
+# bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
+# bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
+bargaining_gamma1 = np.array([1/3.0])
+bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
@@ -45,18 +45,19 @@ cooperative_cost_weights = np.array([0.5, 0.5])
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
+N = 5
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.75, 1.55, dynamics_type=dynamics_type)])
 x3f = np.array([player_state(-0.5, -1.5, dynamics_type=dynamics_type)])
 x0_players = (
-    player_state(-1.75, 1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
+    player_state(-1.75, 1.5, psi=np.deg2rad(0), dynamics_type=dynamics_type),
     player_state(1.0, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
     player_state(2.0, 2.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 
-max_workers = min(20, max(1, int(os.cpu_count() * 0.33)))
+max_workers = min(30, max(1, int(os.cpu_count() * 0.33)))
 # max_workers = 1
         
 
@@ -188,7 +189,7 @@ if __name__ == '__main__':
             Game, x1f=x1f, x2f=x2f, LearnedData=LearnedData,
             x3f=x3f if player_count == 3 else None,
             alpha=(np.array([alpha1, alpha2]) if player_count == 3 else alpha1),
-            horizon=5,
+            horizon=N,
             prev_best_cost=prev_p1_total_cost if iter > 0 else np.inf,
             max_workers=max_workers,
             cooperative=cooperative,
@@ -328,25 +329,22 @@ if __name__ == '__main__':
             )
             break
 
-        # if iter > 1:
-        #     alpha1 = max(0.0, alpha1-0.05)
-
         rebuild_analyzed_data(
             LearnedData,
             iter,
             Game,
             Solver1,
-            iterations_to_use = 3)
+            iterations_to_use = 2)
 
-        LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
-        if not cooperative and iter > 0 and should_reduce_alpha(
-            LearnedData.RawData[iter - 1].p1_total_cost,
-            LearnedData.RawData[iter].p1_total_cost,
-            shared_constraint_active,
-            max_relative_drop = 0.01
-        ):
-            alpha1 = max(0.0, alpha1 - 0.05)
-            print(f"Reduced alpha1 to {alpha1:.2f}")
+        # LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
+        # if not cooperative and iter > 0 and should_reduce_alpha(
+        #     LearnedData.RawData[iter - 1].p1_total_cost,
+        #     LearnedData.RawData[iter].p1_total_cost,
+        #     shared_constraint_active,
+        #     max_relative_drop = 0.01
+        # ):
+        #     alpha1 = max(0.0, alpha1 - 0.05)
+        #     print(f"Reduced alpha1 to {alpha1:.2f}")
 
         if iter > 0:
             costs_not_improving = (

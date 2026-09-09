@@ -455,7 +455,7 @@ class GameDynamics:
         else:
             desired_heading = 0.0
         if player == 0:
-            desired_speed = max(self.v_min, min(0.75, position_gain * distance))
+            desired_speed = max(self.v_min, min(1.0, position_gain * distance))
         else:
             desired_speed = max(self.v_min, min(1.25, position_gain * distance))
         if self.has_heading_state:
@@ -482,8 +482,9 @@ class GameDynamics:
         """
         
         target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-        if self.t < 2.0:
-            target[1] += 2.0
+        if self.t < 1.6:
+            target[0] = 2.0
+            target[1] = 2.0
         
         if self.is_unicycle:
             return self._unicycle_goal_controller(0, target)
