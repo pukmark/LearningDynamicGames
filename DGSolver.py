@@ -1331,9 +1331,9 @@ class DGSolver:
                             self.Solver,
                         )
                     )
-                    if no_interaction:
-                        sample_number += len(gammas) - gamma_offset - 1
-                        break
+                    # if no_interaction:
+                    #     sample_number += len(gammas) - gamma_offset - 1
+                    #     break
         elif self.max_workers > 1:
             worker_solver = copy.copy(self)
             worker_solver.Solution = copy.deepcopy(previous_solution)
