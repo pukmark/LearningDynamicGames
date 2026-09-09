@@ -1306,21 +1306,21 @@ class DGSolver:
                     )
                     if candidate_solver is None:
                         self._sampled_solver_cache[cache_key] = self.Solver
-                    if not self.last_solve_success:
-                        if gamma_offset == 0:
-                            sample_number += len(gammas) - 1
-                            break
-                        continue
+                    # if not self.last_solve_success:
+                    #     if gamma_offset == 0:
+                    #         sample_number += len(gammas) - 1
+                    #         break
+                    #     continue
 
                     candidate_solution = copy.deepcopy(self.Solution)
                     no_interaction = solution_has_no_interaction(
                         candidate_solution, self.sigma_zero_tolerance
                     )
-                    if no_interaction:
-                        candidate_solution.gamma_independent = True
-                        candidate_solution.skipped_bargaining_gammas = np.asarray(
-                            gammas[gamma_offset + 1:], dtype=float
-                        )
+                    # if no_interaction:
+                    #     candidate_solution.gamma_independent = True
+                    #     candidate_solution.skipped_bargaining_gammas = np.asarray(
+                    #         gammas[gamma_offset + 1:], dtype=float
+                    #     )
                     candidate_results.append(
                         (
                             sample_index,
