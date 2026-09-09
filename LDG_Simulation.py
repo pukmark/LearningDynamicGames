@@ -57,7 +57,7 @@ x0_players = (
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 
-max_workers = min(30, max(1, int(os.cpu_count() * 0.33)))
+max_workers = min(25, max(1, int(os.cpu_count() * 0.33)))
 # max_workers = 1
         
 

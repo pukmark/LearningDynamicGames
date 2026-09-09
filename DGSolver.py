@@ -1153,7 +1153,7 @@ class DGSolver:
             return self.backup_controller(x0)
         return control
 
-    def step_with_recovery(self, t, x0, max_horizon_extension=3, **step_kwargs):
+    def step_with_recovery(self, t, x0, max_horizon_extension=0, **step_kwargs):
         """Expand a failed search, retaining the full solver and backup on success."""
         if not isinstance(max_horizon_extension, (int, np.integer)) or max_horizon_extension < 0:
             raise ValueError("max_horizon_extension must be a nonnegative integer")
