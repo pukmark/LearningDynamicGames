@@ -45,7 +45,7 @@ cooperative_cost_weights = np.array([0.5, 0.5])
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
-N = 5
+N = 6
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.75, 1.55, dynamics_type=dynamics_type)])

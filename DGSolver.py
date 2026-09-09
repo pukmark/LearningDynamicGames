@@ -474,9 +474,9 @@ class DGSolver:
         self._sampled_solver_cache = {}
         
         if self.game.is_unicycle and self.game.nx1 == 4:
-            self.Qk = np.diag([1.0, 1.0, 0.1, 0.0])
+            self.Qk = np.diag([1.0, 1.0, 0.01, 0.0])
         else:
-            self.Qk = np.diag([1.0, 1.0] + [0.1] * (self.game.nx1 - 2))
+            self.Qk = np.diag([1.0, 1.0] + [0.01] * (self.game.nx1 - 2))
         self.R1 = R1
         self.R2 = R2
         self.R3 = R3
