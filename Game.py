@@ -136,6 +136,7 @@ class GameDynamics:
                 'f_private', [x1_sym, u1_sym], [
                     u1_sym[0] + self.a_max,
                     self.a_max - u1_sym[0],
+                    x1_sym[2] - self.v_min,
                     u1_sym[1] - steering_min,
                     steering_max - u1_sym[1],
                 ],
@@ -162,7 +163,7 @@ class GameDynamics:
             for player, u_sym in enumerate(u_syms):
                 offset = player * self.nx1
                 velocities.append(x_sym[offset + 2])
-        shared_constraints.append(0.5*self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
+        shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1
@@ -530,11 +531,11 @@ class GameDynamics:
         It uses player 2's state and target, mirrors the initial x waypoint,
         and returns only player 2's two control components.
         """
-        if self.t < 2.0:
-            target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
+        target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
+        if self.t < 2.0 and self.dynamics_type == 4:
             target[0] += 4.0
-        else:
-            target = np.asarray(self.x2f, dtype=float).reshape(-1)        
+        elif self.t < 2.5 and self.dynamics_type == 3:
+            target[0] += 4.0
         
         if self.is_unicycle:
             return self._unicycle_goal_controller(1, target)
@@ -576,7 +577,10 @@ class GameDynamics:
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        if self.t < 3.0:
+        if self.t < 3.0 and self.dynamics_type == 3:
+            target[0] -= 1.0
+            target[1] += 3.0
+        elif self.t < 3.0 and self.dynamics_type == 4:
             target[0] -= 1.0
             target[1] += 3.0
         

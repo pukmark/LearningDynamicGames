@@ -1086,7 +1086,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
         speed_sum_squares = float(p1_speed[-1]**2 + p2_speed[-1]**2)
         if game.n_players == 3:
             speed_sum_squares += float(p3_speed[-1]**2)
-        shared_velocity_limit = 0.5 * game.n_players * game.v_max**2
+        shared_velocity_limit = game.n_players * game.v_max**2
         state["velocity_constraint_text"].set_text(
             rf"$\sum_i \|v_i\|^2 = {speed_sum_squares:.3f}$"
             + f" / {shared_velocity_limit:.3f} (shared limit)"
