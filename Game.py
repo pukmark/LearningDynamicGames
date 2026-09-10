@@ -107,6 +107,7 @@ class GameDynamics:
         self.x1f = x1f
         self.x2f = x2f
         self.x3f = x3f
+        # self.xf = np.concatenate(
 
         # Define shared constranits function:
         x_sym = ca.SX.sym('x_sym', self.nx)

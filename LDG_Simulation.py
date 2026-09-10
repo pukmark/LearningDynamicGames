@@ -264,31 +264,25 @@ if __name__ == '__main__':
                 print("Infeasible Step - Stopping Iteration")
 
             player1_distance = float(ca.bilin(Solver1.Qk, Game.x[:Game.nx1] - Game.x1f))
-            player2_distance = float(ca.bilin(
-                Solver1.Qk,
-                Game.x[Game.nx1:2 * Game.nx1] - Game.targets[1],
-            ))
+            player2_distance = float(ca.bilin(Solver1.Qk, Game.x[Game.nx1:2 * Game.nx1] - Game.x2f))
             player_distances = [player1_distance, player2_distance]
             if player_count == 3:
-                player3_distance = float(ca.bilin(
-                    Solver1.Qk,
-                    Game.x[2 * Game.nx1:3 * Game.nx1] - Game.targets[2],
-                ))
+                player3_distance = float(ca.bilin(Solver1.Qk, Game.x[2 * Game.nx1:3 * Game.nx1] - Game.x3f))
                 player_distances.append(player3_distance)
             
             # if player1_distance <= 10*Solver1.proximity_minval:
             #     Game.x[:Game.nx1] = Game.x1f.copy()
             # if player2_distance <= 10*Solver1.proximity_minval:
             #     Game.x[Game.nx1:] = Game.x2f.copy()
-
-            if Game.t >= tf: EndGame = True
-            if GameFlag is not Game.STEP_OK: EndGame = True
-            if max(player_distances) <= Solver1.proximity_minval: EndGame = True
             
             print( f"Time: {Game.t:2.2}, "
                    f"Player 1 Dist: {player1_distance:2.2}, "
                    f"Player 2 Dist: {player2_distance:2.2}"
                    + (f", Player 3 Dist: {player3_distance:2.2}" if player_count == 3 else "") )
+            
+            if Game.t >= tf: EndGame = True
+            if GameFlag is not Game.STEP_OK: EndGame = True
+            if max(player_distances) <= Solver1.proximity_minval: EndGame = True
         
         (LearnedData.RawData[iter].p1_arrival_time, LearnedData.RawData[iter].p2_arrival_time) = arrival_times(Game.get_history(), 0.0, x1f, x2f, Game.nx1, arrival_tolerance,)
         if (np.isfinite(LearnedData.RawData[iter].p1_arrival_time)
@@ -310,8 +304,8 @@ if __name__ == '__main__':
                 current_cost2 += current_terminal_cost
             else:
                 current_cost3 += current_terminal_cost
-        # if GameFlag is Game.STEP_OK:
-        #     append_terminal_learned_state(LearnedData, Game, iter)
+        if GameFlag is Game.STEP_OK:
+            append_terminal_learned_state(LearnedData, Game, iter)
         
         iteration_costs = [current_cost1, current_cost2]
         if player_count == 3:

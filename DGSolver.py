@@ -493,6 +493,13 @@ class DGSolver:
         self.proximity_Q = (1 / self.game.nx) * np.diag(
             per_player_proximity * self.game.n_players
         )
+        if self.game.is_unicycle and self.game.nx1 == 4:
+            self.proximity_Q = (1 / self.game.nx) * np.diag(
+                [1.0, 1.0, 0.01, 0.0] * self.game.n_players)
+        elif self.game.is_unicycle and self.game.nx1 == 3:
+            self.proximity_Q = (1 / self.game.nx) * np.diag(
+                [1.0, 1.0, 0.01] * self.game.n_players)
+        
         per_player_dx = ([1e-3, 1e-3] if self.game.is_single_integrator
                          else [1e-2, 1e-2] + [1e-3] * (self.game.nx1 - 2))
         self.small_dx = np.asarray(per_player_dx * self.game.n_players)
@@ -501,26 +508,20 @@ class DGSolver:
         self.proximity_maxval = np.array(ca.bilin(self.proximity_Q, self.large_dx)).flatten()[0]
 
         self.stage_costs = []
+        self.times_to_target = []
         for player, target in enumerate(self.targets):
             xp = ca.SX.sym(f'cost_x{player + 1}', self.game.nx1)
             up = ca.SX.sym(f'cost_u{player + 1}', self.game.nu1)
-            time_to_target = ca.if_else(
-                ca.bilin(self.Qk, xp - target) <= self.proximity_minval,
-                0.0, 1.0,
-            )
+            time_to_target = ca.if_else(ca.bilin(self.Qk, xp - target) <= self.proximity_minval, 0.0, 1.0)
             self.stage_costs.append(ca.Function(
                 f'player_{player + 1}_stage_cost', [xp, up],
                 [ca.bilin(self.Qk, xp - target) + ca.bilin((self.R1, self.R2, self.R3)[player]*input_cost_weights, up)
-                 + time_to_target],
+                 + time_to_target]))
+            self.times_to_target.append(ca.Function(
+                f'player_{player + 1}_time_to_target', [xp],
+                [time_to_target]
             ))
-        if self.game.n_players == 3:
-            x3 = ca.SX.sym('x3', self.game.nx1)
-            u3 = ca.SX.sym('u3', self.game.nu1)
-            self.l3 = ca.Function(
-                'l3', [x3, u3], [self.stage_costs[2](x3, u3)]
-            )
 
-        
         self.Solution = SimpleNamespace()
         self.Solution.success = False
         self.Solution.terminal_sample_state = None
@@ -1223,9 +1224,9 @@ class DGSolver:
         else:
             cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
         if not Extended_Horizon:
-            horizon_search = np.clip(4-self.game.iteration/2, 1.5, 3)*self.N * self.dt
+            horizon_search = 3**self.N * self.dt
         else:
-            horizon_search = 3*self.N * self.dt
+            horizon_search = 6*self.N * self.dt
         candidate_indices = np.where(
             cost_filter
             & ((sample_times <= previous_sample_time + horizon_search)
@@ -2357,9 +2358,9 @@ class DGSolver:
             )
             if prediction.shape != (self.N + 1, self.game.nx1):
                 return False
-            errors = prediction - target
-            distances = np.einsum("ij,jk,ik->i", errors, self.Qk, errors)
-            joint_arrival &= distances <= self.proximity_minval
+            errors = prediction[-1] - target
+            distance = float(ca.bilin(self.Qk, errors))
+            joint_arrival &= distance <= self.proximity_minval
         return bool(np.any(joint_arrival))
 
     def backup_controller_init(self):
