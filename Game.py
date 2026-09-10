@@ -21,8 +21,8 @@ class GameDynamics:
         x1f,
         x2f,
         x3f=None,
-        u_min=-2,
-        u_max=2,
+        u_min=-5,
+        u_max=5,
         L=20.0,
         W=10.0,
         vx_min=-2,
@@ -30,11 +30,11 @@ class GameDynamics:
         vy_min=-2,
         vy_max=2,
         v_min=0.0,
-        v_max=2.0,
+        v_max=3.0,
         a_max=10.0,
-        psi_max=4*np.pi,
+        psi_max=2*np.pi,
         d_sep=0.5,
-        dynamics_type=3,
+        dynamics_type=4,
         MaxIterations=50,
         psidot_min=-np.pi/2,
         psidot_max=np.pi/2,
@@ -610,3 +610,51 @@ class GameDynamics:
                 control = (control - np.dot(control, velocity)* velocity/ np.linalg.norm(velocity) ** 2)
             
         return np.clip(control, self.u_min, self.u_max)
+
+    def MpcController(self):
+        """Return the same bounded goal-tracking controller for player 3."""
+        
+        opti = ca.Opti()
+        N = 30
+        x = opti.variable(self.nx, N+1)
+        u = opti.variable(self.nu, N)
+        
+        opti.subject_to(x[:,0] == self.x)
+        for k in range(N):
+            for p in range(self.n_players):
+                opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,k+1] == self.dynamics_fun(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k]))
+            # opti.subject_to(self.f_shared(x[:,k], *[u[p*self.nu1:(p+1)*self.nu1,k] for p in range(self.n_players)]) >= 0)
+            for p in range(self.n_players):
+                opti.subject_to(u[p*self.nu1] >= -5)
+                opti.subject_to(u[p*self.nu1] <= 5)
+                opti.subject_to(u[p*self.nu1+1] >= -0.25)
+                opti.subject_to(u[p*self.nu1+1] <= 0.25)
+                opti.subject_to(x[p*self.nx1+2] <= 1)
+                f_private = self.f_private(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k])
+                if not isinstance(f_private, (tuple, list)):
+                    f_private = (f_private,)
+                [opti.subject_to(f >= 0) for f in f_private]
+            for p in range(self.n_players):
+                opti.subject_to(x[p*self.nx1+2] <= 1.5)
+        for p in range(self.n_players):
+            opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,-1] == self.targets[p])
+                
+        cost = 0
+        Qk = np.diag([0.2, 0.2, 0.0, 1.0])
+        Rk = np.diag([0.5, 0.5])
+        for k in range(N):
+            cost += sum(ca.bilin(Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
+        #     cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
+        opti.minimize(cost)
+        
+        p_opts = {"expand": False, "ipopt": {"max_iter": 500, "print_level": 0}}
+        
+        opti.solver("ipopt", p_opts)
+        solution = opti.solve()
+        
+        x = solution.value(x)
+        u = solution.value(u)
+        cost_val = solution.value(cost)
+        
+        return u
+        

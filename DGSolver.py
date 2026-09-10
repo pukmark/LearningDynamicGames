@@ -453,6 +453,7 @@ class DGSolver:
             ):
                 raise ValueError("bargaining_gammas must contain values in [0, 1]")
         self.disagreement_costs = disagreement_costs
+        self._accepted_plan_total_costs = None
         self.sigma_zero_tolerance = float(sigma_zero_tolerance)
         if self.sigma_zero_tolerance < 0.0:
             raise ValueError("sigma_zero_tolerance must be nonnegative")
@@ -500,8 +501,8 @@ class DGSolver:
             self.proximity_Q = (1 / self.game.nx) * np.diag(
                 [1.0, 1.0, 0.01] * self.game.n_players)
         
-        per_player_dx = ([1e-3, 1e-3] if self.game.is_single_integrator
-                         else [1e-2, 1e-2] + [1e-3] * (self.game.nx1 - 2))
+        per_player_dx = ([1e-4, 1e-4] if self.game.is_single_integrator
+                         else [1e-3, 1e-3] + [1e-4] * (self.game.nx1 - 2))
         self.small_dx = np.asarray(per_player_dx * self.game.n_players)
         self.large_dx = 20 * self.small_dx
         self.proximity_minval = np.array(ca.bilin(self.proximity_Q, self.small_dx)).flatten()[0]
@@ -1192,6 +1193,25 @@ class DGSolver:
         # Failed trials must not replace the original retained backup/control.
         return control
 
+    def _bargaining_baseline(self, executed_costs, disagreement_costs=None,
+                             previous_iteration_costs=None):
+        """Return the retained plan's remaining cost, or an explicit override.
+
+        The stored total includes costs executed before the plan was accepted.
+        Subtracting the current executed costs advances its baseline without
+        changing it during candidate enumeration or repeated recovery attempts.
+        """
+        fixed = (disagreement_costs if disagreement_costs is not None
+                 else self.disagreement_costs)
+        if fixed is not None:
+            return np.asarray(fixed, dtype=float).copy()
+        totals = self._accepted_plan_total_costs
+        if totals is None:
+            totals = previous_iteration_costs
+        if totals is None:
+            return None
+        return np.asarray(totals, dtype=float) - np.asarray(executed_costs, dtype=float)
+
     def _step_over_sampled_terminal_states(
         self, t, x0, current_cost1=0.0, current_cost2=0.0,
         current_cost3=0.0,
@@ -1200,6 +1220,15 @@ class DGSolver:
         disagreement_costs=None, previous_iteration_costs=None,
     ):
         """Enumerate safe-set states and, in cooperative mode, bargaining weights."""
+        executed_costs = np.array(
+            [current_cost1, current_cost2, current_cost3][:self.game.n_players],
+            dtype=float,
+        )
+        bargaining_baseline = None
+        if self.cooperative and self.cooperative_selection == "nash_bargaining":
+            bargaining_baseline = self._bargaining_baseline(
+                executed_costs, disagreement_costs, previous_iteration_costs,
+            )
         analyzed = self.LearnedData.AnalyzedData
         states = np.asarray(analyzed.state)
         Cost2Go = np.asarray(analyzed.Cost2Go)
@@ -1218,24 +1247,24 @@ class DGSolver:
         previous_sample_time = getattr(previous_solution, "terminal_sample_time", 0.0)
         previous_terminal_state = getattr(previous_solution, "terminal_sample_state", None)
         distance_to_terminal = np.linalg.norm(states[:,:2] - x0[:2], axis=1)
-        distance_to_previous_terminal_state = np.linalg.norm(states[:,:2] - previous_terminal_state[:2], axis=1) if previous_terminal_state is not None else np.inf*np.ones_like(distance_to_terminal)
+        distance_to_previous_terminal_state1 = np.linalg.norm(states[:,:2] - previous_terminal_state[:2], axis=1) if previous_terminal_state is not None else np.inf*np.ones_like(distance_to_terminal)
+        distance_to_previous_terminal_state2 = np.linalg.norm(states[:,self.game.nx1:self.game.nx1+2] - previous_terminal_state[self.game.nx1:self.game.nx1+2], axis=1) if previous_terminal_state is not None else np.inf*np.ones_like(distance_to_terminal)
+        distance_to_previous_terminal_state3 = np.linalg.norm(states[:,2*self.game.nx2:2*self.game.nx2+2] - previous_terminal_state[2*self.game.nx2:2*self.game.nx2+2], axis=1) if previous_terminal_state is not None else np.inf*np.ones_like(distance_to_terminal)
         if self.cooperative:
             cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) & (Cost2Go2 <= prev_cost2go2 + self.cost_tol) & (Cost2Go3 <= prev_cost2go3 + self.cost_tol)
         else:
             cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
         if not Extended_Horizon:
-            horizon_search = 3**self.N * self.dt
+            horizon_search = 3*self.N * self.dt
         else:
             horizon_search = 6*self.N * self.dt
         candidate_indices = np.where(
             cost_filter
             & ((sample_times <= previous_sample_time + horizon_search)
-                | (distance_to_previous_terminal_state < 0.25))
-            & (distance_to_terminal <= (
-                self.game.v_max if self.game.is_unicycle
-                else np.sqrt(2) * self.game.vx_max
-            ) * self.N * self.dt)
-            & (sample_times > t + (self.N-1) * self.dt - 1e-5)
+                | (distance_to_previous_terminal_state1 < 1.0)
+                | (distance_to_previous_terminal_state2 < 1.0)
+                | (distance_to_previous_terminal_state3 < 1.0))
+            & (sample_times > t + (self.N-2) * self.dt - 1e-5)
             
         )[0]
 
@@ -1426,7 +1455,7 @@ class DGSolver:
                 if not candidate_results:
                     selected = None
                 elif self.cooperative_selection == "nash_bargaining":
-                    baseline = disagreement_costs if disagreement_costs is not None else self.disagreement_costs
+                    baseline = bargaining_baseline
                     if baseline is None:
                         baseline = np.max([
                             [r[2], r[3], r[4].player3_cost]
@@ -1453,11 +1482,7 @@ class DGSolver:
                         ),
                     )
             elif self.cooperative_selection == "nash_bargaining":
-                baseline = (
-                    disagreement_costs
-                    if disagreement_costs is not None
-                    else self.disagreement_costs
-                )
+                baseline = bargaining_baseline
                 if baseline is None:
                     # Conservative default when no policy-specific disagreement
                     # point is provided: the componentwise worst feasible outcome.
@@ -1570,6 +1595,12 @@ class DGSolver:
         self.last_solve_success = True
         
         self.backup_controller_update(self.Solution)
+        if self.cooperative:
+            # Commit only the selected plan, after its backup was retained.
+            self._accepted_plan_total_costs = executed_costs + np.array([
+                getattr(best_solution, f"player{p + 1}_cost")
+                for p in range(self.game.n_players)
+            ])
         return np.concatenate([
             getattr(best_solution, f"u{p + 1}")[0]
             for p in range(self.game.n_players)
@@ -2385,6 +2416,10 @@ class DGSolver:
         for player, field in enumerate(cost_fields):
             setattr(self.backup, f"cost{player + 1}", float(getattr(raw_data, field)))
         self.backup.indx = 0
+        self._accepted_plan_total_costs = np.array([
+            getattr(self.backup, f"cost{player + 1}")
+            for player in range(self.game.n_players)
+        ])
         
     def backup_controller_update(self, Solution):
         """Replace the backup with ``Solution`` followed by a learned suffix.

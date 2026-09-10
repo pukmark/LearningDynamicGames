@@ -15,7 +15,6 @@ from LDG_Simulation_aux import (
     player_state,
     rebuild_analyzed_data,
     record_learned_state,
-    remaining_cost_budget,
     save_learned_data,
     should_reduce_alpha,
 )
@@ -34,22 +33,22 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
-bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
-# bargaining_gamma1 = np.array([1/3.0])
-# bargaining_gamma2 = np.array([1/3.0])
+# bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
+# bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
+bargaining_gamma1 = np.array([1/3.0])
+bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
-# Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
-# the bootstrap use the previous completed totals minus costs executed so far.
+# Optional fixed per-player costs-to-go. When this is None, the baseline
+# follows the accepted plan's remaining cost, initialized from the bootstrap.
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
-N = 6
+N = 4
 learned_data_path = "LearnedData.pkl"
-x1f = np.array([player_state(1.5, -1.5, dynamics_type=dynamics_type)])
-x2f = np.array([player_state(-1.75, 1.55, dynamics_type=dynamics_type)])
-x3f = np.array([player_state(-0.5, -1.5, dynamics_type=dynamics_type)])
+x1f = np.array([player_state(1.5, -1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
+x2f = np.array([player_state(-1.75, 1.55, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
+x3f = np.array([player_state(-0.5, -1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x0_players = (
     player_state(-1.75, 1.5, psi=np.deg2rad(0), dynamics_type=dynamics_type),
     player_state(1.0, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
@@ -98,8 +97,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "--disagreement-costs", nargs="+", type=float, metavar="B",
         help=(
-            "fixed costs-to-go override; by default each later iteration uses "
-            "the previous totals minus costs executed so far"
+            "fixed costs-to-go override; by default use the accepted plan's "
+            "remaining costs, updated whenever a new plan is accepted"
         ),
     )
     parser.add_argument(
@@ -211,17 +210,18 @@ if __name__ == '__main__':
                 if cooperative and iter > 0 else None
             )
             active_disagreement_costs = baseline_costs
-            if cooperative and active_disagreement_costs is None and iter > 0:
-                active_disagreement_costs = remaining_cost_budget(
-                    previous_iteration_costs,
-                    tuple([current_cost1, current_cost2]
-                          + ([current_cost3] if player_count == 3 else [])),
-                )
             if iter == 0:
-                u1 = np.concatenate(
-                    (Game.SimpleController1(), Game.SimpleController2(),
-                     *([Game.SimpleController3()] if player_count == 3 else []))
-                )
+                if Game.t <= 6.0:
+                    u1 = np.concatenate(
+                        (Game.SimpleController1(), Game.SimpleController2(),
+                        *([Game.SimpleController3()] if player_count == 3 else []))
+                    )
+                    u_mpc= None
+                else:
+                    if u_mpc is None:
+                        u_mpc = Game.MpcController()
+                    u1 = u_mpc[:,0]
+                    u_mpc = u_mpc[:,1:]
             else:
                 # Reuse the backup once the prediction reaches all targets;
                 # otherwise solve with recovery for every player.
