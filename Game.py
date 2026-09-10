@@ -36,8 +36,8 @@ class GameDynamics:
         d_sep=0.5,
         dynamics_type=4,
         MaxIterations=50,
-        psidot_min=-np.pi/2,
-        psidot_max=np.pi/2,
+        psidot_min=-np.pi,
+        psidot_max=np.pi,
     ):
         if dt <= 0:
             raise ValueError("dt must be positive")
@@ -155,16 +155,19 @@ class GameDynamics:
         
         shared_constraints = []
         velocities = []
+        acc = []
         if self.is_unicycle is not True:
             for player, u_sym in enumerate(u_syms):
-                offset = player * self.nx1
+                offset_x = player * self.nx1
                 velocities.append(u_sym if self.is_single_integrator
-                                    else x_sym[offset + 2:offset + 4])
+                                    else x_sym[offset_x + 2:offset_x + 4])
         else:
             for player, u_sym in enumerate(u_syms):
-                offset = player * self.nx1
-                velocities.append(x_sym[offset + 2])
-        shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
+                offset_x = player * self.nx1
+                velocities.append(x_sym[offset_x + 2])
+                acc.append(u_sym[0])
+        # shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
+        shared_constraints.append(self.n_players * self.a_max**2 - sum(ca.sumsqr(acc) for acc in acc))
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1

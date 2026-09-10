@@ -328,7 +328,7 @@ if __name__ == '__main__':
             iter,
             Game,
             Solver1,
-            iterations_to_use = 2)
+            iterations_to_use = 3)
 
         # LearnedData.RawData[iter].shared_constraint_active = shared_constraint_active
         # if not cooperative and iter > 0 and should_reduce_alpha(
