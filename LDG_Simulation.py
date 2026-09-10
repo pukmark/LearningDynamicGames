@@ -34,10 +34,10 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-# bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
-# bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
-bargaining_gamma1 = np.array([1/3.0])
-bargaining_gamma2 = np.array([1/3.0])
+bargaining_gamma1 = np.array([1/3.0, 0.4, 0.2, 0.4, 0.05, 0.90, 0.05])
+bargaining_gamma2 = np.array([1/3.0, 0.2, 0.4, 0.4, 0.05, 0.05, 0.90])
+# bargaining_gamma1 = np.array([1/3.0])
+# bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed (b1_t, b2_t) costs-to-go. When this is None, iterations after
