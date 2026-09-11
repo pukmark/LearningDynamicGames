@@ -24,7 +24,7 @@ np.random.seed(100)
 
 L = 5.0
 W = 5.0
-dt = 0.1
+dt = 0.2
 tf = 15.0
 dynamics_type = 4  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
@@ -211,17 +211,20 @@ if __name__ == '__main__':
             )
             active_disagreement_costs = baseline_costs
             if iter == 0:
-                if Game.t <= 6.0:
+                if ((np.linalg.norm(Game.x[:2] - Game.x1f[0,:2]) <= 1.0) and \
+                   (np.linalg.norm(Game.x[Game.nx1:Game.nx1+2] - Game.x2f[0,:2]) <= 1.0) and \
+                   (player_count != 3 or np.linalg.norm(Game.x[2 * Game.nx1:2 * Game.nx1+2] - Game.x3f[0,:2]) <= 1.0)):
+
+                    if u_mpc is None:
+                        u_mpc = Game.MpcController()
+                    u1 = u_mpc[:,0]
+                    u_mpc = u_mpc[:,1:]
+                else:
                     u1 = np.concatenate(
                         (Game.SimpleController1(), Game.SimpleController2(),
                         *([Game.SimpleController3()] if player_count == 3 else []))
                     )
                     u_mpc= None
-                else:
-                    if u_mpc is None:
-                        u_mpc = Game.MpcController()
-                    u1 = u_mpc[:,0]
-                    u_mpc = u_mpc[:,1:]
             else:
                 # Reuse the backup once the prediction reaches all targets;
                 # otherwise solve with recovery for every player.

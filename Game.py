@@ -30,7 +30,7 @@ class GameDynamics:
         vy_min=-2,
         vy_max=2,
         v_min=0.0,
-        v_max=3.0,
+        v_max=2.5,
         a_max=10.0,
         psi_max=2*np.pi,
         d_sep=0.5,
@@ -166,7 +166,7 @@ class GameDynamics:
                 offset_x = player * self.nx1
                 velocities.append(x_sym[offset_x + 2])
                 acc.append(u_sym[0])
-        # shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
+        shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
         shared_constraints.append(self.n_players * self.a_max**2 - sum(ca.sumsqr(acc) for acc in acc))
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
@@ -487,7 +487,7 @@ class GameDynamics:
         """
         
         target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-        if self.t < 1.6:
+        if self.t < 1.5:
             target[0] = 2.0
             target[1] = 2.0
         
@@ -643,8 +643,8 @@ class GameDynamics:
             opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,-1] == self.targets[p])
                 
         cost = 0
-        Qk = np.diag([0.2, 0.2, 0.0, 1.0])
-        Rk = np.diag([0.5, 0.5])
+        Qk = np.diag([0.01, 0.01, 0.0, 1.0])
+        Rk = np.diag([0.1, 0.1])
         for k in range(N):
             cost += sum(ca.bilin(Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
         #     cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
