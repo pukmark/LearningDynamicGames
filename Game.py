@@ -36,8 +36,8 @@ class GameDynamics:
         d_sep=0.5,
         dynamics_type=4,
         MaxIterations=50,
-        psidot_min=-np.pi,
-        psidot_max=np.pi,
+        psidot_min=-np.pi/4,
+        psidot_max=np.pi/4,
     ):
         if dt <= 0:
             raise ValueError("dt must be positive")
