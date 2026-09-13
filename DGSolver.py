@@ -362,7 +362,7 @@ class DGSolver:
     """Basic structure for a dynamic game solver."""
 
     def __init__(self, game: GameDynamics, x1f, x2f, x3f=None,
-                       dt=0.1, horizon=10, 
+                       horizon=10, 
                        alpha=0.5,
                        R1 = 0.05,
                        R2 = 0.05,
@@ -394,7 +394,7 @@ class DGSolver:
         if len(self.targets) != game.n_players:
             raise ValueError("one target is required for every player")
         self.N = int(horizon)
-        self.dt = float(dt)
+        self.dt = float(game.dt)
         if LearnedData is None or LearnedData.AnalyzedData.n_data == 0:
             self.LearnedData = None
         else:
@@ -522,6 +522,7 @@ class DGSolver:
                 f'player_{player + 1}_time_to_target', [xp],
                 [time_to_target]
             ))
+        self.input_cost_weights = input_cost_weights
 
         self.Solution = SimpleNamespace()
         self.Solution.success = False
@@ -529,6 +530,7 @@ class DGSolver:
         self.Solution.player1_predicted_cost = prev_best_cost
         self.last_solve_success = False
         self._terminal_backup_active = False
+        self.mpc_opti = None
         
         if game.iteration > 1 and self.LearnedData is not None:
             self.backup_controller_init()
@@ -1336,11 +1338,11 @@ class DGSolver:
                     )
                     if candidate_solver is None:
                         self._sampled_solver_cache[cache_key] = self.Solver
-                    # if not self.last_solve_success:
+                    if not self.last_solve_success:
                     #     if gamma_offset == 0:
                     #         sample_number += len(gammas) - 1
                     #         break
-                    #     continue
+                        continue
 
                     candidate_solution = copy.deepcopy(self.Solution)
                     # no_interaction = solution_has_no_interaction(
@@ -1810,22 +1812,54 @@ class DGSolver:
 
         ai_xf_vec = np.zeros((ai_len,1))
         x1f_slack = np.zeros((x1f_slack_len,1))
-        x2f_slack = np.zeros((x2f_slack_len,1))
-
-        z0 = np.concatenate(
-            (
-                x1.reshape(x1_len, order="F"),
-                u1.reshape(u1_len, order="F"),
-                ai_xf_vec.reshape(ai_len, order="F"),
-                x1f_slack.reshape(x1f_slack.shape[0], order="F"),
-                x2.reshape(x2_len, order="F"),
-                u2.reshape(u2_len, order="F"),
-                x2f_slack.reshape(x2f_slack.shape[0], order="F"),
-                np.zeros(mu_len),
-                np.zeros(lambda_len),
-                np.zeros(sigma_len),
+        x2f_slack = np.zeros((x2f_slack_len,1))        
+        
+        feasible, x_mpc, u_mpc = self.MpcController(x0, terminal_states[0])
+        if not feasible:
+            z0 = np.concatenate(
+                (
+                    x1.reshape(x1_len, order="F"),
+                    u1.reshape(u1_len, order="F"),
+                    ai_xf_vec.reshape(ai_len, order="F"),
+                    x1f_slack.reshape(x1f_slack.shape[0], order="F"),
+                    x2.reshape(x2_len, order="F"),
+                    u2.reshape(u2_len, order="F"),
+                    x2f_slack.reshape(x2f_slack.shape[0], order="F"),
+                    np.zeros(mu_len),
+                    np.zeros(lambda_len),
+                    np.zeros(sigma_len),
+                )
             )
-        )
+        else:
+            x1_len, u1_len, ai_len, x1f_slack_len = self.Solver.Z_len[0]
+            x2_len, u2_len, ai_len, x2f_slack_len = self.Solver.Z_len[1]
+            x3_len, u3_len, ai_len, x3f_slack_len = self.Solver.Z_len[2]
+            mu_len = self.Solver.Z_len[3]
+            lambda_len = self.Solver.Z_len[4]
+            sigma_len = self.Solver.Z_len[5]
+            ai_xf_vec = np.zeros((ai_len,1))
+            x1f_slack = np.zeros((x1f_slack_len,1))
+            x2f_slack = np.zeros((x2f_slack_len,1))
+            x3f_slack = np.zeros((x3f_slack_len,1))
+            
+            z0 = np.concatenate(
+                (
+                    x_mpc[:,:self.game.nx1].reshape(x1_len, order="F"),
+                    u_mpc[:,:self.game.nu1].reshape(u1_len, order="F"),
+                    x1f_slack.reshape(x1f_slack.shape[0], order="F"),
+                    x_mpc[:,self.game.nx1:2*self.game.nx1].reshape(x2_len, order="F"),
+                    u_mpc[:,self.game.nu1:2*self.game.nu1].reshape(u2_len, order="F"),
+                    x2f_slack.reshape(x2f_slack.shape[0], order="F"),
+                    x_mpc[:,2*self.game.nx1:3*self.game.nx1].reshape(x3_len, order="F"),
+                    u_mpc[:,2*self.game.nu1:3*self.game.nu1].reshape(u3_len, order="F"),
+                    x3f_slack.reshape(x3f_slack.shape[0], order="F"),
+                    np.zeros(mu_len),
+                    np.zeros(lambda_len),
+                    np.zeros(sigma_len),
+                )
+            )
+        
+        
 
         if z0.shape != (n_z,):
             raise RuntimeError(f"initial guess has shape {z0.shape}, expected ({n_z},)")
@@ -1910,9 +1944,15 @@ class DGSolver:
 
         return z, success, info.residual, status
         """
-        z, success, residual, status = jl.eval(solve)
-        z = np.asarray(z, dtype=float).reshape(-1)
-        self.last_solve_success = bool(success)
+        if feasible:
+            z, success, residual, status = jl.eval(solve)
+            z = np.asarray(z, dtype=float).reshape(-1)
+            self.last_solve_success = bool(success)
+        else:
+            z = z0
+            success = False
+            residual = np.inf
+            status = type("SolverNotFeasible", (), {})  # Dummy class for status
         
         if not success:
             sample_progress = (
@@ -2097,8 +2137,40 @@ class DGSolver:
                 np.zeros(ai_len), np.zeros(slack_len),
             ])
         mu_len, lambda_len, sigma_len = self.Solver.Z_len[-3:]
-        z0 = np.concatenate([*initial_parts, np.zeros(mu_len),
-                             np.zeros(lambda_len), np.zeros(sigma_len)])
+        
+        feasible = False
+        feasible, x_mpc, u_mpc = self.MpcController(x0, terminal_states[0])
+        if not feasible:
+            z0 = np.concatenate([*initial_parts, np.zeros(mu_len),
+                                np.zeros(lambda_len), np.zeros(sigma_len)])
+        else:
+            x1_len, u1_len, ai_len, x1f_slack_len = self.Solver.Z_len[0]
+            x2_len, u2_len, ai_len, x2f_slack_len = self.Solver.Z_len[1]
+            x3_len, u3_len, ai_len, x3f_slack_len = self.Solver.Z_len[2]
+            mu_len = self.Solver.Z_len[3]
+            lambda_len = self.Solver.Z_len[4]
+            sigma_len = self.Solver.Z_len[5]
+            ai_xf_vec = np.zeros((ai_len,1))
+            x1f_slack = np.zeros((x1f_slack_len,1))
+            x2f_slack = np.zeros((x2f_slack_len,1))
+            x3f_slack = np.zeros((x3f_slack_len,1))
+            
+            z0 = np.concatenate(
+                (
+                    x_mpc[:,:self.game.nx1].reshape(x1_len, order="F"),
+                    u_mpc[:,:self.game.nu1].reshape(u1_len, order="F"),
+                    x1f_slack.reshape(x1f_slack.shape[0], order="F"),
+                    x_mpc[:,self.game.nx1:2*self.game.nx1].reshape(x2_len, order="F"),
+                    u_mpc[:,self.game.nu1:2*self.game.nu1].reshape(u2_len, order="F"),
+                    x2f_slack.reshape(x2f_slack.shape[0], order="F"),
+                    x_mpc[:,2*self.game.nx1:3*self.game.nx1].reshape(x3_len, order="F"),
+                    u_mpc[:,2*self.game.nu1:3*self.game.nu1].reshape(u3_len, order="F"),
+                    x3f_slack.reshape(x3f_slack.shape[0], order="F"),
+                    np.zeros(mu_len),
+                    np.zeros(lambda_len),
+                    np.zeros(sigma_len),
+                )
+            )
 
         Main.z0 = z0
         Main.ub = np.inf * np.ones(self.Solver.n_u_inf)
@@ -2135,15 +2207,23 @@ class DGSolver:
         """)
         output = 'yes' if self.verbose else 'no'
         nms = 'yes' if self.nms else 'no'
-        z, success, residual, status = jl.eval(f"""
-        PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
-        status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
-            nnz=nnz, output="{output}", convergence_tolerance=tol,
-            nms="{nms}", crash_nbchange_limit=25, major_iteration_limit=250,
-            minor_iteration_limit=5000, cumulative_iteration_limit=50000,
-            restart_limit=50)
-        return z, status == PATHSolver.MCP_Solved, info.residual, status
-        """)
+
+        if feasible:
+            z, success, residual, status = jl.eval(f"""
+            PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
+            status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
+                nnz=nnz, output="{output}", convergence_tolerance=tol,
+                nms="{nms}", crash_nbchange_limit=25, major_iteration_limit=250,
+                minor_iteration_limit=5000, cumulative_iteration_limit=50000,
+                restart_limit=50)
+            return z, status == PATHSolver.MCP_Solved, info.residual, status
+            """)
+        else:
+            z = z0
+            success = False
+            residual = np.inf
+            status = type("MPC_NotFeasible", (), {})  # Dummy class for status
+
         
         sample_progress = (f", sample={sample_number}/{sample_count}"
             if sample_number is not None and sample_count is not None else "")        
@@ -2153,8 +2233,7 @@ class DGSolver:
                 f"status={status.__name__}{sample_progress}"
             )
         else:
-            if self.verbose:
-                print(f"Solver Converged: residual={residual:2.2}, status={status.__name__}{sample_progress}")
+            print(f"Solver Converged: residual={residual:2.2}, status={status.__name__}{sample_progress}")
         
         z = np.asarray(z, dtype=float).reshape(-1)
         self.last_solve_success = bool(success)
@@ -2698,3 +2777,68 @@ class DGSolver:
                 backup_time + self.N * self.dt
             )
         return remaining_controls[0].copy()
+
+    def MpcController(self, x0, xf):
+        """Return the same bounded goal-tracking controller for player 3."""
+        if self.mpc_opti is None:
+            self.InitMpcController()
+        opti = self.mpc_opti
+        opti.set_value(self.mpc_x0, x0)
+        opti.set_value(self.mpc_xf, xf)
+        
+        opti.set_initial(self.mpc_x, np.linspace(x0, xf, self.N+1).T)
+        opti.set_initial(self.mpc_u, np.zeros((self.game.nu, self.N)))
+        try:
+            opti.solve()
+        except:
+            return False, 0, 0
+        
+        x = opti.debug.value(self.mpc_x).T
+        u = opti.debug.value(self.mpc_u).T
+        
+        return True, x, u
+        
+    def InitMpcController(self):
+        """Return the same bounded goal-tracking controller for player 3."""
+        
+        opti = ca.Opti()
+        N = self.N
+        x = opti.variable(self.game.nx, N+1)
+        u = opti.variable(self.game.nu, N)
+        x0 = opti.parameter(self.game.nx, 1)
+        xf = opti.parameter(self.game.nx, 1)
+        
+        opti.subject_to(x[:,0] == x0)
+        for k in range(N):
+            for p in range(self.game.n_players):
+                opti.subject_to(x[p*self.game.nx1:(p+1)*self.game.nx1,k+1] == self.game.dynamics_fun(x[p*self.game.nx1:(p+1)*self.game.nx1,k], u[p*self.game.nu1:(p+1)*self.game.nu1,k]))
+            # opti.subject_to(self.game.f_shared(x[:,k], *[u[p*self.game.nu1:(p+1)*self.game.nu1,k] for p in range(self.game.n_players)]) >= 0)
+            for p in range(self.game.n_players):
+                f_private = self.game.f_private(x[p*self.game.nx1:(p+1)*self.game.nx1,k], u[p*self.game.nu1:(p+1)*self.game.nu1,k])
+                if not isinstance(f_private, (tuple, list)):
+                    f_private = (f_private,)
+                [opti.subject_to(f >= 0) for f in f_private]
+            f_shared = self.game.f_shared(x[:,k], *[u[p*self.game.nu1:(p+1)*self.game.nu1,k] for p in range(self.game.n_players)])
+            if not isinstance(f_shared, (tuple, list)):
+                f_shared = (f_shared,)
+            [opti.subject_to(f >= 0) for f in f_shared]
+        opti.subject_to(x[:,-1] == xf)
+                
+        cost = 0
+        for k in range(N):
+            cost += sum(ca.bilin((self.R1, self.R2, self.R3)[p]*self.input_cost_weights, u[p*self.game.nu1:(p+1)*self.game.nu1,k]) for p in range(self.game.n_players))
+            cost += sum(ca.bilin(self.Qk,x[p*self.game.nx1:(p+1)*self.game.nx1,k+1]-self.targets[p]) for p in range(self.game.n_players))
+        opti.minimize(cost)
+        
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 100, "print_level": 0}}
+        
+        
+        opti.solver("ipopt", p_opts)
+        self.mpc_opti = opti
+        self.mpc_x = x
+        self.mpc_u = u
+        self.mpc_xf = xf
+        self.mpc_x0 = x0
+        
+        return
+        

@@ -35,8 +35,8 @@ cooperative_mode = True
 bargaining_gammas = np.array([0.5])
 bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.50, 0.25, 0.25])
 bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.25, 0.50, 0.25])
-# bargaining_gamma1 = np.array([1/3.0])
-# bargaining_gamma2 = np.array([1/3.0])
+bargaining_gamma1 = np.array([1/3.0])
+bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([0.5, 0.5])
 # Optional fixed per-player costs-to-go. When this is None, the baseline
@@ -44,7 +44,7 @@ cooperative_cost_weights = np.array([0.5, 0.5])
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
-N = 4
+N = 5
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(1.5, -1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-1.75, 1.55, psi=np.deg2rad(90), dynamics_type=dynamics_type)])

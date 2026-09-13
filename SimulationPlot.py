@@ -1080,7 +1080,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
             acceleration_sum_squares = float(np.sum(uu[-1, 0::game.nu1]**2))
             state["input_constraint_text"].set_text(
                 rf"$\sum_i a_i^2 = {acceleration_sum_squares:.3f}$"
-                + rf" / $n\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit)"
+                + rf" / $\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit)"
             )
             state["input_constraint_text"].set_color(
                 "C3" if acceleration_sum_squares > shared_input_limit else "black"
