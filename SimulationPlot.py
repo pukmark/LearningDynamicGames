@@ -1075,7 +1075,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
         lines["sum_ay"].set_data([], [])
 
     if state["input_constraint_text"] is not None:
-        shared_input_limit = game.n_players * game.a_max**2
+        shared_input_limit = game.a_max**2
         if np.any(valid_u):
             acceleration_sum_squares = float(np.sum(uu[-1, 0::game.nu1]**2))
             state["input_constraint_text"].set_text(
@@ -1087,7 +1087,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
             )
         else:
             state["input_constraint_text"].set_text(
-                rf"$n\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit; no inputs yet)"
+                rf"$\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit; no inputs yet)"
             )
             state["input_constraint_text"].set_color("black")
 

@@ -102,6 +102,7 @@ class GameDynamics:
         self.u_min_shared = self.u_min*shared_f_limit
         
         self.d_sep = d_sep
+        self.CD = 1.0  # drag coefficient for unicycle dynamics
                 
         self.x0 = x0
         self.x1f = x1f
@@ -167,7 +168,7 @@ class GameDynamics:
                 velocities.append(x_sym[offset_x + 2])
                 acc.append(u_sym[0])
         shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
-        shared_constraints.append(self.n_players * self.a_max**2 - sum(ca.sumsqr(acc) for acc in acc))
+        shared_constraints.append(self.a_max**2 - sum(ca.sumsqr(acc) for acc in acc))
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1
@@ -350,7 +351,7 @@ class GameDynamics:
                 components.extend([
                     speed * ca.cos(heading) if use_casadi else speed * np.cos(heading),
                     speed * ca.sin(heading) if use_casadi else speed * np.sin(heading),
-                    u[u_offset],
+                    u[u_offset] - self.CD * speed**2 if use_casadi else u[u_offset] - self.CD * speed**2,
                 ])
                 if self.has_heading_state:
                     components.append(u[u_offset + 1])
@@ -536,7 +537,7 @@ class GameDynamics:
         and returns only player 2's two control components.
         """
         target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-        if self.t < 2.0 and self.dynamics_type == 4:
+        if self.t < 2.3 and self.dynamics_type == 4:
             target[0] += 4.0
         elif self.t < 2.5 and self.dynamics_type == 3:
             target[0] += 4.0
@@ -586,7 +587,7 @@ class GameDynamics:
             target[1] += 3.0
         elif self.t < 3.0 and self.dynamics_type == 4:
             target[0] -= 1.0
-            target[1] += 3.0
+            target[1] += 2.0
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")
