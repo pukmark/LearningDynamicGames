@@ -421,6 +421,14 @@ def plot_simulation_init(game):
     ax_u.grid(True, alpha=0.3)
     # ax_u.legend(loc="best", ncol=2)
 
+    input_constraint_text = None
+    if game.is_unicycle:
+        input_constraint_text = ax_u.text(
+            0.02, 0.97, "", transform=ax_u.transAxes,
+            ha="left", va="top", fontsize=8,
+            bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.85},
+        )
+
     velocity_constraint_text = None
     if ax_velocity is not None:
         velocity_constraint_text = ax_velocity.text(
@@ -525,6 +533,7 @@ def plot_simulation_init(game):
         "fig": fig,
         "ax_xy": ax_xy,
         "ax_u": ax_u,
+        "input_constraint_text": input_constraint_text,
         "ax_velocity": ax_velocity,
         "velocity_constraint_text": velocity_constraint_text,
         "ax_cost": ax_cost,
@@ -1064,6 +1073,23 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
             lines["p3_ay"].set_data([], [])
         lines["sum_ax"].set_data([], [])
         lines["sum_ay"].set_data([], [])
+
+    if state["input_constraint_text"] is not None:
+        shared_input_limit = game.n_players * game.a_max**2
+        if np.any(valid_u):
+            acceleration_sum_squares = float(np.sum(uu[-1, 0::game.nu1]**2))
+            state["input_constraint_text"].set_text(
+                rf"$\sum_i a_i^2 = {acceleration_sum_squares:.3f}$"
+                + rf" / $n\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit)"
+            )
+            state["input_constraint_text"].set_color(
+                "C3" if acceleration_sum_squares > shared_input_limit else "black"
+            )
+        else:
+            state["input_constraint_text"].set_text(
+                rf"$n\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit; no inputs yet)"
+            )
+            state["input_constraint_text"].set_color("black")
 
     ax_u.relim()
     ax_u.autoscale_view()
