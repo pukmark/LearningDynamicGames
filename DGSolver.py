@@ -2208,7 +2208,8 @@ class DGSolver:
         output = 'yes' if self.verbose else 'no'
         nms = 'yes' if self.nms else 'no'
 
-        if feasible:
+        # if feasible:
+        if True:
             z, success, residual, status = jl.eval(f"""
             PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
             status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
