@@ -338,9 +338,9 @@ def _solve_sampled_terminal_gamma_sequence(
                 f"{type(exc).__name__}: {exc}",
             )
         results.append(result)
-        # solution = result[4]
-        # if gamma_offset == 0 and solution is None:
-        #     break
+        solution = result[4]
+        if gamma_offset == 0 and solution.mpc_feasibility is False:
+            break
         # if solution is not None and solution_has_no_interaction(
         #     solution, worker_solver.sigma_zero_tolerance
         # ):
@@ -379,7 +379,8 @@ class DGSolver:
                        cooperative_selection="nash_bargaining",
                        cooperative_cost_weights=None,
                        disagreement_costs=None,
-                       sigma_zero_tolerance=1e-8):
+                       sigma_zero_tolerance=1e-8,
+                       baseline_mode="accepted_plan"):
         if horizon <= 0:
             raise ValueError("horizon must be positive")
 
@@ -452,7 +453,11 @@ class DGSolver:
                 (self.bargaining_gammas < 0.0) | (self.bargaining_gammas > 1.0)
             ):
                 raise ValueError("bargaining_gammas must contain values in [0, 1]")
+        if baseline_mode not in ("iteration_start", "accepted_plan"):
+            raise ValueError("baseline_mode must be 'iteration_start' or 'accepted_plan'")
+        self.baseline_mode = baseline_mode
         self.disagreement_costs = disagreement_costs
+        self._iteration_start_total_costs = None
         self._accepted_plan_total_costs = None
         self.sigma_zero_tolerance = float(sigma_zero_tolerance)
         if self.sigma_zero_tolerance < 0.0:
@@ -1197,17 +1202,24 @@ class DGSolver:
 
     def _bargaining_baseline(self, executed_costs, disagreement_costs=None,
                              previous_iteration_costs=None):
-        """Return the retained plan's remaining cost, or an explicit override.
+        """Return the selected baseline's remaining cost, or a fixed override.
 
-        The stored total includes costs executed before the plan was accepted.
-        Subtracting the current executed costs advances its baseline without
-        changing it during candidate enumeration or repeated recovery attempts.
+        iteration_start retains the completed run's total available at the
+        start of this iteration. accepted_plan replaces that total whenever
+        a new plan is accepted. Both subtract the current executed costs.
+        Explicit disagreement costs are already costs-to-go and stay fixed.
         """
+        if self._iteration_start_total_costs is None and previous_iteration_costs is not None:
+            self._iteration_start_total_costs = np.asarray(
+                previous_iteration_costs, dtype=float
+            ).copy()
         fixed = (disagreement_costs if disagreement_costs is not None
                  else self.disagreement_costs)
         if fixed is not None:
             return np.asarray(fixed, dtype=float).copy()
-        totals = self._accepted_plan_total_costs
+        totals = (self._iteration_start_total_costs
+                  if self.baseline_mode == "iteration_start"
+                  else self._accepted_plan_total_costs)
         if totals is None:
             totals = previous_iteration_costs
         if totals is None:
@@ -2019,6 +2031,7 @@ class DGSolver:
             self.Solution.indx = 0
             self.Solution.x1f_slack = x1f_slack
             self.Solution.x2f_slack = x2f_slack
+            self.Solution.mpc_feasibility = feasible
         elif hasattr(self.Solution, "indx"):
             self.Solution.success = bool(success)
             if last_attempted_solution:
@@ -2208,8 +2221,7 @@ class DGSolver:
         output = 'yes' if self.verbose else 'no'
         nms = 'yes' if self.nms else 'no'
 
-        # if feasible:
-        if True:
+        if feasible:
             z, success, residual, status = jl.eval(f"""
             PATHSolver.c_api_License_SetString("1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0")
             status, z, info = PATHSolver.solve_mcp(F, J, lb, ub, z0,
@@ -2262,7 +2274,7 @@ class DGSolver:
             self.Solution = SimpleNamespace(
                 success=True, t=t, z=z, residual=float(residual),
                 status=status.__name__, ai_xf_vec=ai_xf_vec, sigma=sigma,
-                a_set=a_set, x0=x0, indx=0,
+                a_set=a_set, x0=x0, indx=0, mpc_feasibility=feasible
             )
             for player in range(self.game.n_players):
                 setattr(self.Solution, f'x{player + 1}', solved_x[player])
@@ -2500,6 +2512,7 @@ class DGSolver:
             getattr(self.backup, f"cost{player + 1}")
             for player in range(self.game.n_players)
         ])
+        self._iteration_start_total_costs = self._accepted_plan_total_costs.copy()
         
     def backup_controller_update(self, Solution):
         """Replace the backup with ``Solution`` followed by a learned suffix.

@@ -33,14 +33,17 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.50, 0.25, 0.25])
-bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.25, 0.50, 0.25])
-bargaining_gamma1 = np.array([1/3.0])
-bargaining_gamma2 = np.array([1/3.0])
+bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.40, 0.30, 0.40, 0.50, 0.25, 0.25])
+bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.30, 0.40, 0.40, 0.25, 0.50, 0.25])
+# bargaining_gamma1 = np.array([1/3.0])
+# bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
-cooperative_cost_weights = np.array([0.5, 0.5])
-# Optional fixed per-player costs-to-go. When this is None, the baseline
-# follows the accepted plan's remaining cost, initialized from the bootstrap.
+cooperative_cost_weights = np.array([1.0, 1.0, 1.0]) / 3.0
+# Nash bargaining compares remaining costs against this total minus costs
+# already incurred: "iteration_start" keeps the starting total, while
+# "accepted_plan" updates the total whenever a new plan is accepted.
+baseline_mode = "iteration_start"
+# Optional fixed per-player costs-to-go override either baseline mode.
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
@@ -95,11 +98,17 @@ if __name__ == '__main__':
         help="convex player-cost weights for weighted_sum; must be nonnegative and sum to 1",
     )
     parser.add_argument(
-        "--disagreement-costs", nargs="+", type=float, metavar="B",
+        "--baseline-mode", choices=("iteration_start", "accepted_plan"),
+        default=baseline_mode,
         help=(
-            "fixed costs-to-go override; by default use the accepted plan's "
-            "remaining costs, updated whenever a new plan is accepted"
+            "Nash bargaining baseline: iteration_start keeps the total available "
+            "at iteration start; accepted_plan uses the latest accepted total "
+            "(default). Both subtract costs already incurred."
         ),
+    )
+    parser.add_argument(
+        "--disagreement-costs", nargs="+", type=float, metavar="B",
+        help="fixed costs-to-go override for either baseline mode",
     )
     parser.add_argument(
         "--movie", default="LDG_Simulation.mp4", metavar="PATH",
@@ -196,6 +205,7 @@ if __name__ == '__main__':
             cooperative_selection=selection_method,
             cooperative_cost_weights=cost_weights,
             disagreement_costs=baseline_costs,
+            baseline_mode=args.baseline_mode,
         )        
         
         EndGame = False
