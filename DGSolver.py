@@ -1266,9 +1266,9 @@ class DGSolver:
         else:
             cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
         if not Extended_Horizon:
-            horizon_search = 3*self.N * self.dt
+            horizon_search = 2*self.N * self.dt
         else:
-            horizon_search = 6*self.N * self.dt
+            horizon_search = 5*self.N * self.dt
         candidate_indices = np.where(
             cost_filter
             & ((sample_times <= previous_sample_time + horizon_search)
@@ -2830,15 +2830,15 @@ class DGSolver:
                 [opti.subject_to(f >= 0) for f in f_private]
             f_shared = self.game.f_shared(x[:,k], *[u[p*self.game.nu1:(p+1)*self.game.nu1,k] for p in range(self.game.n_players)])
             [opti.subject_to(f >= 0) for f in f_shared]
-        opti.subject_to(x[:,-1] == xf)
+        opti.subject_to(x[:,N] == xf)
                 
         cost = 0
         for k in range(N):
-            cost += sum(ca.bilin((self.Rk)*self.input_cost_weights, u[p*self.game.nu1:(p+1)*self.game.nu1,k]) for p in range(self.game.n_players))
-            cost += sum(ca.bilin(self.Qk,x[p*self.game.nx1:(p+1)*self.game.nx1,k+1]-self.targets[p]) for p in range(self.game.n_players))
+            for p in range(self.game.n_players):
+                cost += self.stage_costs[p](x[p*self.game.nx1:(p+1)*self.game.nx1,k], u[p*self.game.nu1:(p+1)*self.game.nu1,k])
         opti.minimize(cost)
         
-        p_opts = {"print_time": 0, "ipopt": {"max_iter": 250, "print_level": 0}}
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 500, "print_level": 0}}
         
         
         opti.solver("ipopt", p_opts)

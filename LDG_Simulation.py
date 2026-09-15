@@ -24,7 +24,7 @@ np.random.seed(100)
 
 L = 20.0
 W = 20.0
-dt = 0.5
+dt = 0.25
 tf = 50.0
 dynamics_type = 4  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
@@ -47,14 +47,14 @@ baseline_mode = "iteration_start"
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
-N = 8
+N = 6
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(0.0, 9.0, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x3f = np.array([player_state(9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x0_players = (
     player_state(0.0, -9.0, psi=np.deg2rad(135), dynamics_type=dynamics_type),
-    player_state(4.5, 4.5, psi=np.deg2rad(135), dynamics_type=dynamics_type),
+    player_state(4.5, 4.5, psi=np.deg2rad(-175), dynamics_type=dynamics_type),
     player_state(-4.5, 4.5, psi=np.deg2rad(45), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
@@ -280,12 +280,7 @@ if __name__ == '__main__':
                 player3_distance = float(ca.bilin(Solver1.Qk, Game.x[2 * Game.nx1:3 * Game.nx1] - Game.x3f))
                 player_distances.append(player3_distance)
             
-            # if player1_distance <= 10*Solver1.proximity_minval:
-            #     Game.x[:Game.nx1] = Game.x1f.copy()
-            # if player2_distance <= 10*Solver1.proximity_minval:
-            #     Game.x[Game.nx1:] = Game.x2f.copy()
-            
-            print( f"Time: {Game.t:2.2}, "
+            print( f"Time: {Game.t:3.3}, "
                    f"Player 1 Dist: {player1_distance:4.4}, "
                    f"Player 2 Dist: {player2_distance:4.4}"
                    + (f", Player 3 Dist: {player3_distance:4.4}" if player_count == 3 else "") )

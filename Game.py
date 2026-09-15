@@ -630,7 +630,7 @@ class GameDynamics:
         """Return the same bounded goal-tracking controller for player 3."""
         
         opti = ca.Opti()
-        N = 10
+        N = 20
         x = opti.variable(self.nx, N+1)
         u = opti.variable(self.nu, N)
         
@@ -641,8 +641,8 @@ class GameDynamics:
             for p in range(self.n_players):
                 opti.subject_to(u[p*self.nu1,k] >= -1)
                 opti.subject_to(u[p*self.nu1,k] <= 1)
-                opti.subject_to(u[p*self.nu1+1,k] >= -np.pi/6)
-                opti.subject_to(u[p*self.nu1+1,k] <= np.pi/6)
+                opti.subject_to(u[p*self.nu1+1,k] >= -np.pi/3)
+                opti.subject_to(u[p*self.nu1+1,k] <= np.pi/3)
                 opti.subject_to(x[p*self.nx1+2,k] >= 0.0)
                 opti.subject_to(x[p*self.nx1+2,k] <= 1.0)
                 f_private = self.f_private(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k])
@@ -657,8 +657,8 @@ class GameDynamics:
             opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,-1] == self.targets[p])
                 
         cost = 0
-        Qk = np.diag([0.1, 0.1, 0.1, 1.0])
-        Rk = np.diag([0.1, 0.1])
+        Qk = np.diag([1.0, 1.0, 0.1, 1.0])
+        Rk = np.diag([0.5, 0.5])
         for k in range(N):
             cost += sum(ca.bilin(Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
             cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
