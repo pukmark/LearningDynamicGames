@@ -24,16 +24,16 @@ class GameDynamics:
         u_min=-5,
         u_max=5,
         L=20.0,
-        W=10.0,
+        W=20.0,
         vx_min=-2,
         vx_max=2,
         vy_min=-2,
         vy_max=2,
         v_min=0.0,
-        v_max=2.0,
+        v_max=3.0,
         a_max=5.0,
         psi_max=2*np.pi,
-        d_sep=0.5,
+        d_sep=1.0,
         dynamics_type=4,
         MaxIterations=50,
         psidot_min=-np.pi/2,
@@ -102,8 +102,12 @@ class GameDynamics:
         self.u_min_shared = self.u_min*shared_f_limit
         
         self.d_sep = d_sep
-        self.CD = 1.0  # drag coefficient for unicycle dynamics
-                
+        self.CD = 0.5  # drag coefficient for unicycle dynamics
+        self.x_elip = 1.0
+        self.y_elip = 1.0
+        self.a_elip = 3.0
+        self.b_elip = 1.0
+
         self.x0 = x0
         self.x1f = x1f
         self.x2f = x2f
@@ -141,6 +145,7 @@ class GameDynamics:
                     x1_sym[2] - self.v_min,
                     u1_sym[1] - steering_min,
                     steering_max - u1_sym[1],
+                    (x1_sym[0] - self.x_elip)**2/self.a_elip**2 + (x1_sym[1] - self.y_elip)**2/self.b_elip**2-1,
                 ],
             )
         else:
@@ -222,7 +227,7 @@ class GameDynamics:
         """Turn toward the desired heading using the shortest angular error."""
         error = np.arctan2(np.sin(desired_heading - heading),
                            np.cos(desired_heading - heading))
-        return float(np.clip(error / response_time, -0.5, 0.5))
+        return float(np.clip(error / response_time, -np.pi/10, np.pi/10))
 
     @staticmethod
     def _as_bounds(value, size, name):
@@ -421,6 +426,12 @@ class GameDynamics:
         x_next = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
         self.x = x_next
         self.t += dt
+        
+        # if x[3] is angle, make sure it is in [-pi, pi]:
+        if self.has_heading_state:
+            for player in range(self.n_players):
+                offset = player * self.nx1 + 3
+                self.x[offset] = (self.x[offset] + np.pi) % (2 * np.pi) - np.pi
 
         if not self._private_constraints_satisfied(self.x, controls):
             self._log_history(u, self.PRIVATE_CONSTRAINT_VIOLATED)
@@ -460,10 +471,9 @@ class GameDynamics:
             desired_heading = np.arctan2(error[1], error[0])
         else:
             desired_heading = 0.0
-        if player == 0:
-            desired_speed = max(self.v_min, min(1.0, position_gain * distance))
-        else:
-            desired_speed = max(self.v_min, min(1.25, position_gain * distance))
+        desired_speed = max(self.v_min, min(1.25, position_gain * distance))
+        if distance < 3.0:
+            desired_speed = min(desired_speed, 0.25 * distance)
         if self.has_heading_state:
             if distance <= 1e-3:
                 desired_heading = target[3]
@@ -472,10 +482,10 @@ class GameDynamics:
                 desired_speed = max(
                     self.v_min, desired_speed * max(0.0, np.cos(desired_heading - state[3]))
                 )
-            steering = self.heading_rate_control(state[3], desired_heading, 0.5)
+            steering = self.heading_rate_control(state[3], desired_heading, self.dt*3.0)
         else:
             steering = desired_heading
-        acceleration = np.clip(speed_gain * (desired_speed - state[2]), -1.0, 1.0)
+        acceleration = np.clip(speed_gain * (desired_speed - state[2]), max(-0.25,-(state[2]-1e-1)/self.dt), 0.25)
         return np.array([acceleration, steering])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
@@ -488,9 +498,9 @@ class GameDynamics:
         """
         
         target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-        if self.t < 1.5:
-            target[0] = 2.0
-            target[1] = 2.0
+        if self.t < 12.0:
+            target[0] = -10.0
+            target[1] = 3.0
         
         if self.is_unicycle:
             return self._unicycle_goal_controller(0, target)
@@ -517,7 +527,7 @@ class GameDynamics:
                 + velocity_gain * velocity_error
             )
             
-            if np.linalg.norm(self.x[2:4]) > self.vx_max-1.0:
+            if np.linalg.norm(self.x[2:4]) > self.v_max/2:
                 control = control -1. * self.x[2:4] / np.linalg.norm(self.x[2:4])
                 if np.dot(control, self.x[2:4]) > 0:
                     control = control - np.dot(control, self.x[2:4]) * self.x[2:4] / np.linalg.norm(self.x[2:4])**2
@@ -537,8 +547,9 @@ class GameDynamics:
         and returns only player 2's two control components.
         """
         target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-        if self.t < 2.3 and self.dynamics_type == 4:
-            target[0] += 4.0
+        if self.t < 15.0 and self.dynamics_type == 4:
+            target[0] = -8.0
+            target[1] = 0.0
         elif self.t < 2.5 and self.dynamics_type == 3:
             target[0] += 4.0
         
@@ -565,7 +576,7 @@ class GameDynamics:
             velocity_error = -velocity
             control = position_gain * position_error + velocity_gain * velocity_error
 
-            if np.linalg.norm(velocity) > self.vx_max - 1.0 and self.t >= 0.8:
+            if np.linalg.norm(velocity) > self.v_max/2:
                 control = control - velocity / np.linalg.norm(velocity)
                 if np.dot(control, velocity) > 0:
                     control = (
@@ -582,12 +593,12 @@ class GameDynamics:
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        if self.t < 3.0 and self.dynamics_type == 3:
-            target[0] -= 1.0
-            target[1] += 3.0
-        elif self.t < 3.0 and self.dynamics_type == 4:
-            target[0] -= 1.0
-            target[1] += 2.0
+        if self.t < 8.0 and self.dynamics_type == 3:
+            target[0] = 1.0
+            target[1] = 3.0
+        elif self.t < 12.0 and self.dynamics_type == 4:
+            target[0] = 8.0
+            target[1] = 5.0
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")
@@ -608,7 +619,7 @@ class GameDynamics:
 
             
         # limit max velocity:
-        if np.linalg.norm(velocity) > self.vx_max - 1.0 and self.t <= 3.0:
+        if np.linalg.norm(velocity) > self.v_max/2:
             control = control - velocity / np.linalg.norm(velocity)
             if np.dot(control, velocity) > 0:
                 control = (control - np.dot(control, velocity)* velocity/ np.linalg.norm(velocity) ** 2)
@@ -619,7 +630,7 @@ class GameDynamics:
         """Return the same bounded goal-tracking controller for player 3."""
         
         opti = ca.Opti()
-        N = 30
+        N = 10
         x = opti.variable(self.nx, N+1)
         u = opti.variable(self.nu, N)
         
@@ -627,38 +638,43 @@ class GameDynamics:
         for k in range(N):
             for p in range(self.n_players):
                 opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,k+1] == self.dynamics_fun(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k]))
-            # opti.subject_to(self.f_shared(x[:,k], *[u[p*self.nu1:(p+1)*self.nu1,k] for p in range(self.n_players)]) >= 0)
             for p in range(self.n_players):
-                opti.subject_to(u[p*self.nu1] >= -5)
-                opti.subject_to(u[p*self.nu1] <= 5)
-                opti.subject_to(u[p*self.nu1+1] >= -0.25)
-                opti.subject_to(u[p*self.nu1+1] <= 0.25)
-                opti.subject_to(x[p*self.nx1+2] <= 1)
+                opti.subject_to(u[p*self.nu1,k] >= -1)
+                opti.subject_to(u[p*self.nu1,k] <= 1)
+                opti.subject_to(u[p*self.nu1+1,k] >= -np.pi/6)
+                opti.subject_to(u[p*self.nu1+1,k] <= np.pi/6)
+                opti.subject_to(x[p*self.nx1+2,k] >= 0.0)
+                opti.subject_to(x[p*self.nx1+2,k] <= 1.0)
                 f_private = self.f_private(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k])
                 if not isinstance(f_private, (tuple, list)):
                     f_private = (f_private,)
                 [opti.subject_to(f >= 0) for f in f_private]
-            for p in range(self.n_players):
-                opti.subject_to(x[p*self.nx1+2] <= 1.5)
+                f_shared = self.f_shared(x[:,k], *[u[p*self.nu1:(p+1)*self.nu1,k] for p in range(self.n_players)])
+                if not isinstance(f_shared, (tuple, list)):
+                    f_shared = (f_shared,)
+                [opti.subject_to(f >= 0) for f in f_shared]
         for p in range(self.n_players):
             opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,-1] == self.targets[p])
                 
         cost = 0
-        Qk = np.diag([0.01, 0.01, 0.0, 1.0])
+        Qk = np.diag([0.1, 0.1, 0.1, 1.0])
         Rk = np.diag([0.1, 0.1])
         for k in range(N):
             cost += sum(ca.bilin(Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
-        #     cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
+            cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
         opti.minimize(cost)
         
-        p_opts = {"expand": False, "ipopt": {"max_iter": 500, "print_level": 0}}
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 200, "print_level": 0, "mu_strategy": "adaptive"}}
         
         opti.solver("ipopt", p_opts)
-        solution = opti.solve()
+        try:
+            solution = opti.solve()
+        except:
+            return None
         
         x = solution.value(x)
         u = solution.value(u)
-        cost_val = solution.value(cost)
+        print("found MPC Solution!!!")
         
         return u
         

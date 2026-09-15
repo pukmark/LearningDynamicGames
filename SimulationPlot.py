@@ -371,9 +371,10 @@ def plot_simulation_init(game):
         )
     lines["Target1"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 1", linewidth=3)
     lines["Target2"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 2", linewidth=3)
+    lines["Obstacle"], = ax_xy.plot([], [], "k--", alpha=1.0, label="Obstacle", linewidth=2)
     if game.n_players == 3:
         lines["Target3"], = ax_xy.plot(
-            [], [], "k^", alpha=1.0, label="Target 3", linewidth=3
+            [], [], "ks", alpha=1.0, label="Target 3", linewidth=3
         )
     ax_xy.axhline(game.y_min, color="0.75", linewidth=0.8)
     ax_xy.axhline(game.y_max, color="0.75", linewidth=0.8)
@@ -1049,6 +1050,8 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
     lines["Target2"].set_data([game.x2f[0,0]],[game.x2f[0,1]])
     if game.n_players == 3:
         lines["Target3"].set_data([target3_position[0]], [target3_position[1]])
+    x_elip, y_elip = game.x_elip + game.a_elip * np.cos(np.linspace(0, 2 * np.pi, 100)), game.y_elip + game.b_elip * np.sin(np.linspace(0, 2 * np.pi, 100))
+    lines["Obstacle"].set_data(x_elip, y_elip)
 
     valid_u = np.isfinite(u).all(axis=1)
     if np.any(valid_u):

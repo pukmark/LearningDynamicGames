@@ -364,9 +364,7 @@ class DGSolver:
     def __init__(self, game: GameDynamics, x1f, x2f, x3f=None,
                        horizon=10, 
                        alpha=0.5,
-                       R1 = 0.05,
-                       R2 = 0.05,
-                       R3 = 0.05,
+                       R_cost = 0.05,
                        LearnedData = None, 
                        p_tol=1e-4,
                        prev_best_cost=None,
@@ -483,9 +481,8 @@ class DGSolver:
             self.Qk = np.diag([1.0, 1.0, 0.01, 0.0])
         else:
             self.Qk = np.diag([1.0, 1.0] + [0.01] * (self.game.nx1 - 2))
-        self.R1 = R1
-        self.R2 = R2
-        self.R3 = R3
+        self.Rk = R_cost
+
         # Unicycle inputs are [a, psi] or [a, psi_dot]; only acceleration is penalized.
         input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle and self.game.nx1 == 3
                               else np.eye(self.game.nu1))
@@ -518,10 +515,10 @@ class DGSolver:
         for player, target in enumerate(self.targets):
             xp = ca.SX.sym(f'cost_x{player + 1}', self.game.nx1)
             up = ca.SX.sym(f'cost_u{player + 1}', self.game.nu1)
-            time_to_target = ca.if_else(ca.bilin(self.Qk, xp - target) <= self.proximity_minval, 0.0, 1.0)
+            time_to_target = ca.if_else(ca.bilin(self.Qk, xp - target) <= self.proximity_minval, 0.0, game.dt)
             self.stage_costs.append(ca.Function(
                 f'player_{player + 1}_stage_cost', [xp, up],
-                [ca.bilin(self.Qk, xp - target) + ca.bilin((self.R1, self.R2, self.R3)[player]*input_cost_weights, up)
+                [ca.bilin(self.Qk, xp - target) + ca.bilin(self.Rk*input_cost_weights, up)
                  + time_to_target]))
             self.times_to_target.append(ca.Function(
                 f'player_{player + 1}_time_to_target', [xp],
@@ -1170,11 +1167,11 @@ class DGSolver:
         if self.last_solve_success or self._terminal_backup_active:
             return control
 
-        expanded_kwargs = {**step_kwargs, "Extended_Horizon": True}
-        if not step_kwargs.get("Extended_Horizon", False):
-            control = self.step(t, x0, **expanded_kwargs)
-            if self.last_solve_success:
-                return control
+        # expanded_kwargs = {**step_kwargs, "Extended_Horizon": True}
+        # if not step_kwargs.get("Extended_Horizon", False):
+        #     control = self.step(t, x0, **expanded_kwargs)
+        #     if self.last_solve_success:
+        #         return control
 
         for extension in range(1, max_horizon_extension + 1):
             # Preserve all current costs/options and the retained continuation.
@@ -1192,7 +1189,7 @@ class DGSolver:
             retry.solver = None
             retry.is_built = False
             retry._sampled_solver_cache = {}
-            retry_control = retry.step(t, x0, **expanded_kwargs)
+            retry_control = retry.step(t, x0, **step_kwargs)
             if retry.last_solve_success:
                 self.__dict__.update(retry.__dict__)
                 return retry_control
@@ -1351,20 +1348,20 @@ class DGSolver:
                     if candidate_solver is None:
                         self._sampled_solver_cache[cache_key] = self.Solver
                     if not self.last_solve_success:
-                    #     if gamma_offset == 0:
-                    #         sample_number += len(gammas) - 1
-                    #         break
+                        if gamma_offset == 0 and self.Solution.mpc_feasibility == False:
+                            sample_number += len(gammas) - 1
+                            break
                         continue
 
                     candidate_solution = copy.deepcopy(self.Solution)
-                    # no_interaction = solution_has_no_interaction(
-                    #     candidate_solution, self.sigma_zero_tolerance
-                    # )
-                    # if no_interaction:
-                    #     candidate_solution.gamma_independent = True
-                    #     candidate_solution.skipped_bargaining_gammas = np.asarray(
-                    #         gammas[gamma_offset + 1:], dtype=float
-                    #     )
+                    no_interaction = solution_has_no_interaction(
+                        candidate_solution, self.sigma_zero_tolerance
+                    )
+                    if no_interaction:
+                        candidate_solution.gamma_independent = True
+                        candidate_solution.skipped_bargaining_gammas = np.asarray(
+                            gammas[gamma_offset + 1:], dtype=float
+                        )
                     candidate_results.append(
                         (
                             sample_index,
@@ -1375,9 +1372,9 @@ class DGSolver:
                             self.Solver,
                         )
                     )
-                    # if no_interaction:
-                    #     sample_number += len(gammas) - gamma_offset - 1
-                    #     break
+                    if no_interaction:
+                        sample_number += len(gammas) - gamma_offset - 1
+                        break
         elif self.max_workers > 1:
             worker_solver = copy.copy(self)
             worker_solver.Solution = copy.deepcopy(previous_solution)
@@ -2153,6 +2150,7 @@ class DGSolver:
         
         feasible = False
         feasible, x_mpc, u_mpc = self.MpcController(x0, terminal_states[0])
+        self.Solution.mpc_feasibility = feasible
         if not feasible:
             z0 = np.concatenate([*initial_parts, np.zeros(mu_len),
                                 np.zeros(lambda_len), np.zeros(sigma_len)])
@@ -2282,6 +2280,7 @@ class DGSolver:
                 setattr(self.Solution, f'x{player + 1}f_slack', slacks[player])
         elif hasattr(self.Solution, 'indx'):
             self.Solution.success = False
+            self.Solution.mpc_feasibility = feasible
         if not all(hasattr(self.Solution, f'u{p + 1}')
                    for p in range(self.game.n_players)):
             return np.zeros(self.game.nu)
@@ -2826,25 +2825,20 @@ class DGSolver:
         for k in range(N):
             for p in range(self.game.n_players):
                 opti.subject_to(x[p*self.game.nx1:(p+1)*self.game.nx1,k+1] == self.game.dynamics_fun(x[p*self.game.nx1:(p+1)*self.game.nx1,k], u[p*self.game.nu1:(p+1)*self.game.nu1,k]))
-            # opti.subject_to(self.game.f_shared(x[:,k], *[u[p*self.game.nu1:(p+1)*self.game.nu1,k] for p in range(self.game.n_players)]) >= 0)
             for p in range(self.game.n_players):
                 f_private = self.game.f_private(x[p*self.game.nx1:(p+1)*self.game.nx1,k], u[p*self.game.nu1:(p+1)*self.game.nu1,k])
-                if not isinstance(f_private, (tuple, list)):
-                    f_private = (f_private,)
                 [opti.subject_to(f >= 0) for f in f_private]
             f_shared = self.game.f_shared(x[:,k], *[u[p*self.game.nu1:(p+1)*self.game.nu1,k] for p in range(self.game.n_players)])
-            if not isinstance(f_shared, (tuple, list)):
-                f_shared = (f_shared,)
             [opti.subject_to(f >= 0) for f in f_shared]
         opti.subject_to(x[:,-1] == xf)
                 
         cost = 0
         for k in range(N):
-            cost += sum(ca.bilin((self.R1, self.R2, self.R3)[p]*self.input_cost_weights, u[p*self.game.nu1:(p+1)*self.game.nu1,k]) for p in range(self.game.n_players))
+            cost += sum(ca.bilin((self.Rk)*self.input_cost_weights, u[p*self.game.nu1:(p+1)*self.game.nu1,k]) for p in range(self.game.n_players))
             cost += sum(ca.bilin(self.Qk,x[p*self.game.nx1:(p+1)*self.game.nx1,k+1]-self.targets[p]) for p in range(self.game.n_players))
         opti.minimize(cost)
         
-        p_opts = {"print_time": 0, "ipopt": {"max_iter": 100, "print_level": 0}}
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 250, "print_level": 0}}
         
         
         opti.solver("ipopt", p_opts)

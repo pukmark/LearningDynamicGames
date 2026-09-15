@@ -22,10 +22,10 @@ from SimulationPlot import *
 
 np.random.seed(100)
 
-L = 5.0
-W = 5.0
-dt = 0.2
-tf = 15.0
+L = 20.0
+W = 20.0
+dt = 0.5
+tf = 50.0
 dynamics_type = 4  # 1: single integrator, 2: double integrator, 3: unicycle (a, psi), 4: unicycle (a, psi_dot)
 terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # In cooperative mode Solver1 selects both the learned safe-set reconnection
@@ -33,8 +33,8 @@ terminal_constraint_mode = "sampled_points" # {"convex_hull", "sampled_points"}
 # Nash bargaining or a convex weighted sum of the two players' costs-to-go.
 cooperative_mode = True
 bargaining_gammas = np.array([0.5])
-bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.40, 0.30, 0.40, 0.50, 0.25, 0.25])
-bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.30, 0.40, 0.40, 0.25, 0.50, 0.25])
+bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.40, 0.30, 0.40, 0.50, 0.25, 0.25, 0.80, 0.10, 0.10])
+bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.30, 0.40, 0.40, 0.25, 0.50, 0.25, 0.10, 0.80, 0.10])
 # bargaining_gamma1 = np.array([1/3.0])
 # bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
@@ -47,15 +47,15 @@ baseline_mode = "iteration_start"
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
-N = 5
+N = 8
 learned_data_path = "LearnedData.pkl"
-x1f = np.array([player_state(1.5, -1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
-x2f = np.array([player_state(-1.75, 1.55, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
-x3f = np.array([player_state(-0.5, -1.5, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
+x1f = np.array([player_state(0.0, 9.0, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
+x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
+x3f = np.array([player_state(9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x0_players = (
-    player_state(-1.75, 1.5, psi=np.deg2rad(0), dynamics_type=dynamics_type),
-    player_state(1.0, -2.0, psi=np.deg2rad(60), dynamics_type=dynamics_type),
-    player_state(2.0, 2.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type),
+    player_state(0.0, -9.0, psi=np.deg2rad(135), dynamics_type=dynamics_type),
+    player_state(4.5, 4.5, psi=np.deg2rad(135), dynamics_type=dynamics_type),
+    player_state(-4.5, 4.5, psi=np.deg2rad(45), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     # Start Julia/PATHSolver once for this simulation execution. The main
     # process and persistent terminal workers are reused by every iteration.
     # initialize_pathsolver_runtime(max_workers=max_workers)
-
+    u_mpc = None
     iteration_paths = []
     for iter in range(Game.Max_Iterations):
         if iter > 0:
@@ -221,12 +221,15 @@ if __name__ == '__main__':
             )
             active_disagreement_costs = baseline_costs
             if iter == 0:
-                if ((np.linalg.norm(Game.x[:2] - Game.x1f[0,:2]) <= 1.0) and \
-                   (np.linalg.norm(Game.x[Game.nx1:Game.nx1+2] - Game.x2f[0,:2]) <= 1.0) and \
-                   (player_count != 3 or np.linalg.norm(Game.x[2 * Game.nx1:2 * Game.nx1+2] - Game.x3f[0,:2]) <= 1.0)):
+                d_mpc = 5.0
+                if ((np.linalg.norm(Game.x[:2] - Game.x1f[0,:2]) <= d_mpc) and \
+                   (np.linalg.norm(Game.x[Game.nx1:Game.nx1+2] - Game.x2f[0,:2]) <= d_mpc) and \
+                   (player_count != 3 or np.linalg.norm(Game.x[2 * Game.nx1:2 * Game.nx1+2] - Game.x3f[0,:2]) <= d_mpc)):
 
                     if u_mpc is None:
                         u_mpc = Game.MpcController()
+                    
+                if u_mpc is not None:
                     u1 = u_mpc[:,0]
                     u_mpc = u_mpc[:,1:]
                 else:
@@ -234,7 +237,6 @@ if __name__ == '__main__':
                         (Game.SimpleController1(), Game.SimpleController2(),
                         *([Game.SimpleController3()] if player_count == 3 else []))
                     )
-                    u_mpc= None
             else:
                 # Reuse the backup once the prediction reaches all targets;
                 # otherwise solve with recovery for every player.
@@ -248,15 +250,10 @@ if __name__ == '__main__':
                         
                                 
             # calculate current cost for player 1:
-            current_cost1 += float(Solver1.stage_costs[0](
-                Game.x[:Game.nx1], u1[:Game.nu1]))
-            current_cost2 += float(Solver1.stage_costs[1](
-                Game.x[Game.nx1:2 * Game.nx1],
-                u1[Game.nu1:2 * Game.nu1]))
+            current_cost1 += float(Solver1.stage_costs[0](Game.x[:Game.nx1], u1[:Game.nu1]))
+            current_cost2 += float(Solver1.stage_costs[1](Game.x[Game.nx1:2 * Game.nx1], u1[Game.nu1:2 * Game.nu1]))
             if player_count == 3:
-                current_cost3 += float(Solver1.stage_costs[2](
-                    Game.x[2 * Game.nx1:3 * Game.nx1],
-                    u1[2 * Game.nu1:3 * Game.nu1]))
+                current_cost3 += float(Solver1.stage_costs[2](Game.x[2 * Game.nx1:3 * Game.nx1], u1[2 * Game.nu1:3 * Game.nu1]))
             
             u = u1.copy()
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
@@ -289,9 +286,9 @@ if __name__ == '__main__':
             #     Game.x[Game.nx1:] = Game.x2f.copy()
             
             print( f"Time: {Game.t:2.2}, "
-                   f"Player 1 Dist: {player1_distance:2.2}, "
-                   f"Player 2 Dist: {player2_distance:2.2}"
-                   + (f", Player 3 Dist: {player3_distance:2.2}" if player_count == 3 else "") )
+                   f"Player 1 Dist: {player1_distance:4.4}, "
+                   f"Player 2 Dist: {player2_distance:4.4}"
+                   + (f", Player 3 Dist: {player3_distance:4.4}" if player_count == 3 else "") )
             
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
