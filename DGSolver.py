@@ -364,7 +364,7 @@ class DGSolver:
     def __init__(self, game: GameDynamics, x1f, x2f, x3f=None,
                        horizon=10, 
                        alpha=0.5,
-                       R_cost = 0.05,
+                       R_cost = 0.25,
                        LearnedData = None, 
                        p_tol=1e-4,
                        prev_best_cost=None,
@@ -478,13 +478,13 @@ class DGSolver:
         self._sampled_solver_cache = {}
         
         if self.game.is_unicycle and self.game.nx1 == 4:
-            self.Qk = np.diag([1.0, 1.0, 0.01, 0.0])
+            self.Qk = np.diag([1.0, 1.0, 0.0, 0.0])
         else:
-            self.Qk = np.diag([1.0, 1.0] + [0.01] * (self.game.nx1 - 2))
+            self.Qk = np.diag([1.0, 1.0] + [0.0] * (self.game.nx1 - 2))
         self.Rk = R_cost
 
         # Unicycle inputs are [a, psi] or [a, psi_dot]; only acceleration is penalized.
-        input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle and self.game.nx1 == 3
+        input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle
                               else np.eye(self.game.nu1))
         self.p_tol = p_tol
         self.verbose = verbose
@@ -1266,16 +1266,16 @@ class DGSolver:
         else:
             cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
         if not Extended_Horizon:
-            horizon_search = 2*self.N * self.dt
+            horizon_search = max(5-self.game.iteration, 1.5)*self.N * self.dt
         else:
             horizon_search = 5*self.N * self.dt
         candidate_indices = np.where(
             cost_filter
             & ((sample_times <= previous_sample_time + horizon_search)
-                | (distance_to_previous_terminal_state1 < 1.0)
-                | (distance_to_previous_terminal_state2 < 1.0)
-                | (distance_to_previous_terminal_state3 < 1.0))
-            & (sample_times > t + (self.N-2) * self.dt - 1e-5)
+                | (distance_to_previous_terminal_state1 < 2.0)
+                | (distance_to_previous_terminal_state2 < 2.0)
+                | (distance_to_previous_terminal_state3 < 2.0))
+            & (sample_times > t + (self.N-1) * self.dt - 1e-5)
             
         )[0]
 

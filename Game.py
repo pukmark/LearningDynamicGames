@@ -105,8 +105,8 @@ class GameDynamics:
         self.CD = 0.5  # drag coefficient for unicycle dynamics
         self.x_elip = 1.0
         self.y_elip = 1.0
-        self.a_elip = 3.0
-        self.b_elip = 1.0
+        self.a_elip = 5.0
+        self.b_elip = 2.0
 
         self.x0 = x0
         self.x1f = x1f
