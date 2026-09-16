@@ -102,7 +102,7 @@ class GameDynamics:
         self.u_min_shared = self.u_min*shared_f_limit
         
         self.d_sep = d_sep
-        self.CD = 0.5  # drag coefficient for unicycle dynamics
+        self.CD = 0.25  # drag coefficient for unicycle dynamics
         self.x_elip = 1.0
         self.y_elip = 1.0
         self.a_elip = 5.0
@@ -471,9 +471,13 @@ class GameDynamics:
             desired_heading = np.arctan2(error[1], error[0])
         else:
             desired_heading = 0.0
-        desired_speed = max(self.v_min, min(1.25, position_gain * distance))
-        if distance < 3.0:
-            desired_speed = min(desired_speed, 0.25 * distance)
+        desired_speed = max(self.v_min, min(1.5, position_gain * distance))
+        if distance < 10.0:
+            desired_speed = min(desired_speed, 0.3 * distance)
+            target[1] = target[1] - 0.5*distance*np.cos(target[3])
+            target[0] = target[0] - 0.5*distance*np.sin(target[3])
+            error = target[:2] - state[:2]
+            desired_heading = np.arctan2(error[1], error[0])
         if self.has_heading_state:
             if distance <= 1e-3:
                 desired_heading = target[3]
@@ -482,7 +486,7 @@ class GameDynamics:
                 desired_speed = max(
                     self.v_min, desired_speed * max(0.0, np.cos(desired_heading - state[3]))
                 )
-            steering = self.heading_rate_control(state[3], desired_heading, self.dt*3.0)
+            steering = self.heading_rate_control(state[3], desired_heading, self.dt*2.0)
         else:
             steering = desired_heading
         acceleration = np.clip(speed_gain * (desired_speed - state[2]), max(-0.25,-(state[2]-1e-1)/self.dt), 0.25)
@@ -498,9 +502,9 @@ class GameDynamics:
         """
         
         target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-        if self.t < 12.0:
-            target[0] = -10.0
-            target[1] = 3.0
+        if self.t < 11.0:
+            target[0] = -20.0
+            target[1] = 6.0
         
         if self.is_unicycle:
             return self._unicycle_goal_controller(0, target)
@@ -547,9 +551,9 @@ class GameDynamics:
         and returns only player 2's two control components.
         """
         target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-        if self.t < 15.0 and self.dynamics_type == 4:
-            target[0] = -8.0
-            target[1] = 0.0
+        if self.t < 13.0 and self.dynamics_type == 4:
+            target[0] = -20.0
+            target[1] = 1.0
         elif self.t < 2.5 and self.dynamics_type == 3:
             target[0] += 4.0
         
@@ -561,12 +565,6 @@ class GameDynamics:
             raise ValueError(
                 f"x2f must contain one player state with shape ({self.nx2},)"
             )
-
-        distance = np.linalg.norm(self.x[:2] - self.x[p2:p2 + 2])
-        if distance < 2 * self.d_sep:
-            velocity_gain = 2 * velocity_gain
-        if np.linalg.norm(self.x1f[0, :2] - self.x[:2]) < 3*self.d_sep:
-            position_gain = 4 * position_gain
 
         position_error = target[:2] - self.x[p2:p2 + 2]
         if self.is_single_integrator:
@@ -595,10 +593,10 @@ class GameDynamics:
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
         if self.t < 8.0 and self.dynamics_type == 3:
             target[0] = 1.0
-            target[1] = 3.0
-        elif self.t < 12.0 and self.dynamics_type == 4:
-            target[0] = 8.0
-            target[1] = 5.0
+            target[1] = 6.0
+        elif self.t < 10.0 and self.dynamics_type == 4:
+            target[0] = 20.0
+            target[1] = 8.0
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")
@@ -639,12 +637,12 @@ class GameDynamics:
             for p in range(self.n_players):
                 opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,k+1] == self.dynamics_fun(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k]))
             for p in range(self.n_players):
-                opti.subject_to(u[p*self.nu1,k] >= -1)
-                opti.subject_to(u[p*self.nu1,k] <= 1)
-                opti.subject_to(u[p*self.nu1+1,k] >= -np.pi/3)
-                opti.subject_to(u[p*self.nu1+1,k] <= np.pi/3)
+                # opti.subject_to(u[p*self.nu1,k] >= -2)
+                # opti.subject_to(u[p*self.nu1,k] <= 2)
+                opti.subject_to(u[p*self.nu1+1,k] >= -np.pi/5)
+                opti.subject_to(u[p*self.nu1+1,k] <= np.pi/5)
                 opti.subject_to(x[p*self.nx1+2,k] >= 0.0)
-                opti.subject_to(x[p*self.nx1+2,k] <= 1.0)
+                opti.subject_to(x[p*self.nx1+2,k] <= 1.5)
                 f_private = self.f_private(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k])
                 if not isinstance(f_private, (tuple, list)):
                     f_private = (f_private,)
@@ -654,13 +652,13 @@ class GameDynamics:
                     f_shared = (f_shared,)
                 [opti.subject_to(f >= 0) for f in f_shared]
         for p in range(self.n_players):
-            opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,-1] == self.targets[p])
+            opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,N] == self.targets[p])
                 
         cost = 0
-        Qk = np.diag([1.0, 1.0, 0.1, 1.0])
-        Rk = np.diag([0.5, 0.5])
+        Qk = np.diag([0.1, 0.1, 0.1, 1.0])
+        Rk = np.diag([0.1, 1.0])
         for k in range(N):
-            cost += sum(ca.bilin(Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
+            cost += sum(ca.bilin(k**2*Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
             cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
         opti.minimize(cost)
         

@@ -35,14 +35,14 @@ cooperative_mode = True
 bargaining_gammas = np.array([0.5])
 bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.40, 0.30, 0.40, 0.50, 0.25, 0.25, 0.80, 0.10, 0.10])
 bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.30, 0.40, 0.40, 0.25, 0.50, 0.25, 0.10, 0.80, 0.10])
-# bargaining_gamma1 = np.array([1/3.0])
-# bargaining_gamma2 = np.array([1/3.0])
+bargaining_gamma1 = np.array([1/3.0])
+bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([1.0, 1.0, 1.0]) / 3.0
 # Nash bargaining compares remaining costs against this total minus costs
 # already incurred: "iteration_start" keeps the starting total, while
 # "accepted_plan" updates the total whenever a new plan is accepted.
-baseline_mode = "iteration_start"
+baseline_mode = "accepted_plan"
 # Optional fixed per-player costs-to-go override either baseline mode.
 disagreement_costs = None
 Niterations = 15
@@ -50,11 +50,11 @@ arrival_tolerance = 0.01
 N = 6
 learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(0.0, 9.0, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
-x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
+x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-45), dynamics_type=dynamics_type)])
 x3f = np.array([player_state(9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x0_players = (
     player_state(0.0, -9.0, psi=np.deg2rad(135), dynamics_type=dynamics_type),
-    player_state(4.5, 4.5, psi=np.deg2rad(-175), dynamics_type=dynamics_type),
+    player_state(4.5, 4.5, psi=np.deg2rad(179), dynamics_type=dynamics_type),
     player_state(-4.5, 4.5, psi=np.deg2rad(45), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
@@ -287,7 +287,7 @@ if __name__ == '__main__':
             
             if Game.t >= tf: EndGame = True
             if GameFlag is not Game.STEP_OK: EndGame = True
-            if max(player_distances) <= Solver1.proximity_minval: EndGame = True
+            if max(player_distances) <= Solver1.proximity_minval/1000: EndGame = True
         
         (LearnedData.RawData[iter].p1_arrival_time, LearnedData.RawData[iter].p2_arrival_time) = arrival_times(Game.get_history(), 0.0, x1f, x2f, Game.nx1, arrival_tolerance,)
         if (np.isfinite(LearnedData.RawData[iter].p1_arrival_time)
