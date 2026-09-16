@@ -48,7 +48,6 @@ disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
 N = 6
-learned_data_path = "LearnedData.pkl"
 x1f = np.array([player_state(0.0, 9.0, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-135), dynamics_type=dynamics_type)])
 x3f = np.array([player_state(9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
@@ -181,6 +180,7 @@ if __name__ == '__main__':
         movie_path = start_simulation_movie(
             args.movie, fps=args.movie_fps, dpi=args.movie_dpi
         )
+    learned_data_path = args.movi[:-4]+"_LearnedData.pkl"
 
     # Start Julia/PATHSolver once for this simulation execution. The main
     # process and persistent terminal workers are reused by every iteration.
