@@ -180,7 +180,7 @@ if __name__ == '__main__':
         movie_path = start_simulation_movie(
             args.movie, fps=args.movie_fps, dpi=args.movie_dpi
         )
-    learned_data_path = args.movi[:-4]+"_LearnedData.pkl"
+    learned_data_path = args.movie[:-4]+"_LearnedData.pkl"
 
     # Start Julia/PATHSolver once for this simulation execution. The main
     # process and persistent terminal workers are reused by every iteration.
