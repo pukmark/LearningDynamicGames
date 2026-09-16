@@ -35,8 +35,8 @@ cooperative_mode = True
 bargaining_gammas = np.array([0.5])
 bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.40, 0.30, 0.40, 0.50, 0.25, 0.25, 0.80, 0.10, 0.10])
 bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.30, 0.40, 0.40, 0.25, 0.50, 0.25, 0.10, 0.80, 0.10])
-bargaining_gamma1 = np.array([1/3.0])
-bargaining_gamma2 = np.array([1/3.0])
+# bargaining_gamma1 = np.array([1/3.0])
+# bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([1.0, 1.0, 1.0]) / 3.0
 # Nash bargaining compares remaining costs against this total minus costs
@@ -79,11 +79,11 @@ if __name__ == '__main__':
         help="candidate alpha1 values for a two-player game",
     )
     parser.add_argument(
-        "--bargaining-gamma1", nargs="+", type=float, default=None,
+        "--bargaining-gamma1", nargs="+", type=float, default=bargaining_gamma1,
         help="candidate alpha1 values for a three-player game",
     )
     parser.add_argument(
-        "--bargaining-gamma2", nargs="+", type=float, default=None,
+        "--bargaining-gamma2", nargs="+", type=float, default=bargaining_gamma2,
         help="candidate alpha2 values paired with --bargaining-gamma1",
     )
     parser.add_argument(
