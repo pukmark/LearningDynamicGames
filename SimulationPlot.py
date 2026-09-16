@@ -157,15 +157,21 @@ def save_simulation_figure(path="LDG_Simulation.png"):
 
 def save_iteration_figure(
     game, previous_paths, player_costs, directory="Results/iterations",
-    previous_alpha=0.12,
+    previous_alpha=0.12, gamma_history=None,
 ):
-    """Save the current XY history, faded earlier paths, and accumulated costs.
+    """Save XY paths, costs, inputs, speeds, and equilibrium selections.
 
     ``previous_paths`` contains full-game state arrays, one per earlier
     iteration. Costs include all executed stage costs and the terminal cost.
+    ``gamma_history`` optionally supplies (times, weights), with one column
+    per player. Otherwise use selections from this game's current live plot.
     This standalone figure does not change the live plot or movie state.
     """
-    current_path = np.asarray(game.get_history()["x"], dtype=float)
+    history = game.get_history()
+    current_path = np.asarray(history["x"], dtype=float)
+    times = np.asarray(history["t"], dtype=float)
+    controls = np.asarray(history["u"], dtype=float).reshape(-1, game.nu)
+    input_times = times[:-1]
     costs = np.asarray(player_costs, dtype=float).reshape(-1)
     if costs.shape != (game.n_players,):
         raise ValueError("player_costs must contain one cost per player")
@@ -179,8 +185,12 @@ def save_iteration_figure(
     output_path = Path(directory) / f"iteration_{game.iteration:03d}.png"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # Construct directly to avoid opening a window during an interactive run.
-    figure = Figure(figsize=(8, 6))
-    ax = figure.subplots()
+    figure = Figure(figsize=(13, 11))
+    grid = figure.add_gridspec(4, 2, width_ratios=(1.65, 1.0))
+    ax = figure.add_subplot(grid[:, 0])
+    input_axes = [figure.add_subplot(grid[row, 1]) for row in (0, 1)]
+    velocity_ax = figure.add_subplot(grid[2, 1])
+    gamma_ax = figure.add_subplot(grid[3, 1])
     for player in range(game.n_players):
         offset = player * game.nx1
         color = f"C{player}"
@@ -199,13 +209,90 @@ def save_iteration_figure(
     ax.set_title(f"XY paths — Iteration {game.iteration}")
     ax.grid(True, alpha=0.25)
     ax.legend(loc="best", ncol=game.n_players, frameon=False, fontsize=9)
-    figure.subplots_adjust(left=0.11, right=0.96, top=0.91, bottom=0.23)
+    if game.is_unicycle:
+        input_labels = ("a", r"$\dot{\psi}$" if game.has_heading_state else r"$\psi$")
+    else:
+        prefix = "v" if game.is_single_integrator else "a"
+        input_labels = (f"{prefix}x", f"{prefix}y")
+    for component, (input_ax, label) in enumerate(zip(input_axes, input_labels)):
+        for player in range(game.n_players):
+            input_ax.step(
+                input_times, controls[:, player * game.nu1 + component],
+                where="post", color=f"C{player}",
+            )
+        input_ax.set_ylabel(label)
+        input_ax.set_title(f"Input {label}")
+        if game.is_unicycle:
+            lower, upper = ((-game.a_max, game.a_max) if component == 0
+                            else game.steering_bounds)
+        else:
+            lower, upper = game.u_min, game.u_max
+        input_ax.axhline(lower, color="0.5", linestyle=":", linewidth=1)
+        input_ax.axhline(upper, color="0.5", linestyle=":", linewidth=1)
+        if game.is_unicycle and component == 0:
+            shared_ax, shared_line = _shared_constraint_axis(
+                input_ax, r"$\sum_i a_i^2 / a_{\max}^2$", drawstyle="steps-post"
+            )
+            shared_line.set_data(
+                input_times, np.sum(controls[:, 0::game.nu1]**2, axis=1) / game.a_max**2
+            )
+            _autoscale_shared_constraint(shared_ax)
+
+    if game.is_single_integrator:
+        speeds = np.linalg.norm(controls.reshape(-1, game.n_players, game.nu1), axis=2)
+        speed_times = input_times
+    elif game.is_unicycle:
+        speeds = current_path[:, 2::game.nx1]
+        speed_times = times
+    else:
+        speeds = np.linalg.norm(
+            current_path.reshape(-1, game.n_players, game.nx1)[:, :, 2:4], axis=2
+        )
+        speed_times = times
+    for player in range(game.n_players):
+        velocity_ax.plot(speed_times, speeds[:, player], color=f"C{player}")
+    velocity_ax.set_ylabel("velocity")
+    velocity_ax.set_title("Player speeds")
+    shared_ax, shared_line = _shared_constraint_axis(
+        velocity_ax, r"$\sum_i \|v_i\|^2 / (n v_{\max}^2)$"
+    )
+    shared_line.set_data(
+        speed_times, np.sum(speeds**2, axis=1) / (game.n_players * game.v_max**2)
+    )
+    _autoscale_shared_constraint(shared_ax)
+
+    if gamma_history is None:
+        state = getattr(plot_simulation, "_state", None)
+        if (state is not None and state.get("game") is game
+                and state["iteration"] == game.iteration):
+            first_gamma = np.asarray(state["bargaining_gammas"], dtype=float)
+            gamma_columns = ([first_gamma, 1.0 - first_gamma] if game.n_players == 2
+                             else [first_gamma, state["bargaining_gammas2"],
+                                   state["bargaining_gammas3"]])
+            gamma_history = (state["bargaining_times"], np.column_stack(gamma_columns))
+    if gamma_history is not None:
+        gamma_times = np.asarray(gamma_history[0], dtype=float)
+        gammas = np.asarray(gamma_history[1], dtype=float)
+        if gamma_times.ndim != 1 or gammas.shape != (len(gamma_times), game.n_players):
+            raise ValueError("gamma_history must contain times and one weight column per player")
+        for player in range(game.n_players):
+            gamma_ax.plot(gamma_times, gammas[:, player], color=f"C{player}",
+                          marker="o", markersize=3, linewidth=1.5)
+    gamma_ax.set_title("Nash equilibrium selection")
+    gamma_ax.set_ylabel(r"$\gamma_i$")
+    gamma_ax.set_ylim(-0.05, 1.05)
+    for panel in [*input_axes, velocity_ax, gamma_ax]:
+        panel.set_xlabel("time")
+        panel.set_xlim(times[0], max(times[-1], times[0] + game.dt))
+        panel.grid(True, alpha=0.25)
+    figure.subplots_adjust(left=0.07, right=0.92, top=0.95, bottom=0.08,
+                           hspace=0.7, wspace=0.35)
     figure.text(
-        0.96, 0.04,
+        0.07, 0.04,
         "Current cost\n" + "\n".join(
             f"P{player + 1}: {cost:.2f}" for player, cost in enumerate(costs)
         ),
-        ha="right", va="bottom", fontsize=10,
+        ha="left", va="bottom", fontsize=10,
     )
     figure.savefig(output_path, dpi=300)
     return output_path
@@ -272,28 +359,48 @@ def _record_simulation_movie_frame(state):
     state["movie_frame_count"] += 1
 
 
+def _shared_constraint_axis(ax, label, **plot_options):
+    """Add a right axis showing shared-budget usage relative to its limit."""
+    shared_ax = ax.twinx()
+    line, = shared_ax.plot(
+        [], [], color="C3", linestyle="--", linewidth=1.5,
+        label="Shared usage", **plot_options,
+    )
+    shared_ax.axhline(1.0, color="C3", linestyle=":", linewidth=1, label="Maximum")
+    shared_ax.set_ylabel(label, color="C3", fontsize=9)
+    shared_ax.tick_params(axis="y", labelcolor="C3")
+    shared_ax.set_ylim(0.0, 1.1)
+    # shared_ax.legend(loc="upper right", fontsize=7)
+    return shared_ax, line
+
+
+def _autoscale_shared_constraint(ax):
+    """Keep zero and the maximum visible, including any budget violations."""
+    ax.relim()
+    ax.autoscale(enable=True, axis="y")
+    ax.set_ylim(0.0, max(1.1, ax.get_ylim()[1]))
+
+
 def plot_simulation_init(game):
     plt.ion()
     plot_rows = 4 if game.is_single_integrator else 5
     fig = plt.figure(figsize=(13, 13.5 if game.is_single_integrator else 15.5))
     gs = fig.add_gridspec(
         plot_rows + 1, 2, width_ratios=(2.0, 1.0),
-        height_ratios=[1.0] * (plot_rows - 1) + [0.75, 1.0],
+        height_ratios=[1.0] * (plot_rows + 1),
     )
     ax_xy = fig.add_subplot(gs[:-1, 0])
-    ax_u = fig.add_subplot(gs[0, 1])
+    input_axes = [fig.add_subplot(gs[row, 1]) for row in (0, 1)]
     ax_cost = fig.add_subplot(gs[-1, :])
     if game.is_single_integrator:
         ax_velocity = None
-        ax_distance = fig.add_subplot(gs[1, 1])
-        ax_bargaining = fig.add_subplot(gs[2, 1])
-    else:
-        ax_velocity = fig.add_subplot(gs[1, 1])
         ax_distance = fig.add_subplot(gs[2, 1])
         ax_bargaining = fig.add_subplot(gs[3, 1])
+    else:
+        ax_velocity = fig.add_subplot(gs[2, 1])
+        ax_distance = fig.add_subplot(gs[3, 1])
+        ax_bargaining = fig.add_subplot(gs[4, 1])
     ax_nash_product = ax_bargaining.twinx()
-    ax_bargaining_text = fig.add_subplot(gs[-2, 1])
-    ax_bargaining_text.set_axis_off()
 
     lines = {}
     lines["p1_state"], = ax_xy.plot([], [], "C0-", label="P1 state")
@@ -357,24 +464,24 @@ def plot_simulation_init(game):
             label="P3 examined terminals",
         )
     lines["p1_selected_terminal"], = ax_xy.plot(
-        [], [], marker="*", color="C4", markersize=13, linestyle="none",
+        [], [], marker="*", color="C0", markersize=13, linestyle="none",
         label="P1 bargained terminal",
     )
     lines["p2_selected_terminal"], = ax_xy.plot(
-        [], [], marker="*", color="C5", markersize=13, linestyle="none",
+        [], [], marker="*", color="C1", markersize=13, linestyle="none",
         label="P2 bargained terminal",
     )
     if game.n_players == 3:
         lines["p3_selected_terminal"], = ax_xy.plot(
-            [], [], marker="*", color="C6", markersize=13,
+            [], [], marker="*", color="C2", markersize=13,
             linestyle="none", label="P3 selected terminal",
         )
-    lines["Target1"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 1", linewidth=3)
-    lines["Target2"], = ax_xy.plot([], [], "ks", alpha=1.0, label="Target 2", linewidth=3)
+    lines["Target1"], = ax_xy.plot([], [], "s", color='C0', alpha=1.0, label="Target 1", linewidth=3)
+    lines["Target2"], = ax_xy.plot([], [], "s", color='C1', alpha=1.0, label="Target 2", linewidth=3)
     lines["Obstacle"], = ax_xy.plot([], [], "k--", alpha=1.0, label="Obstacle", linewidth=2)
     if game.n_players == 3:
         lines["Target3"], = ax_xy.plot(
-            [], [], "ks", alpha=1.0, label="Target 3", linewidth=3
+            [], [], "s", color='C2', alpha=1.0, label="Target 3", linewidth=3
         )
     ax_xy.axhline(game.y_min, color="0.75", linewidth=0.8)
     ax_xy.axhline(game.y_max, color="0.75", linewidth=0.8)
@@ -397,45 +504,44 @@ def plot_simulation_init(game):
     else:
         input_label = "v" if game.is_single_integrator else "a"
         input_x_label, input_y_label = f"{input_label}x", f"{input_label}y"
-    lines["p1_ax"], = ax_u.plot([], [], color="C0", linestyle="-", drawstyle="steps-post", label=f"P1 {input_x_label}")
-    lines["p1_ay"], = ax_u.plot([], [], color="C0", linestyle="--", drawstyle="steps-post", label=f"P1 {input_y_label}")
-    lines["p2_ax"], = ax_u.plot([], [], color="C1", linestyle="-", drawstyle="steps-post", label=f"P2 {input_x_label}")
-    lines["p2_ay"], = ax_u.plot([], [], color="C1", linestyle="--", drawstyle="steps-post", label=f"P2 {input_y_label}")
-    if game.n_players == 3:
-        lines["p3_ax"], = ax_u.plot([], [], color="C2", linestyle="-", drawstyle="steps-post", label=f"P3 {input_x_label}")
-        lines["p3_ay"], = ax_u.plot([], [], color="C2", linestyle="--", drawstyle="steps-post", label=f"P3 {input_y_label}")
-    lines["sum_ax"], = ax_u.plot([], [], color="C2", linestyle="-", linewidth=2, drawstyle="steps-post", label=f"Sum {input_x_label}")
-    lines["sum_ay"], = ax_u.plot([], [], color="C3", linestyle="--", linewidth=2, drawstyle="steps-post", label=f"Sum {input_y_label}")
-    if game.is_unicycle:
-        ax_u.axhline(game.a_max, color="C4", linestyle=":", linewidth=1.5, label="Acceleration limits")
-        ax_u.axhline(-game.a_max, color="C4", linestyle=":", linewidth=1.5)
-        steering_min, steering_max = game.steering_bounds
-        steering_label = "Heading-rate limits" if game.has_heading_state else "Heading limits"
-        ax_u.axhline(steering_max, color="C5", linestyle=":", linewidth=1.5, label=steering_label)
-        ax_u.axhline(steering_min, color="C5", linestyle=":", linewidth=1.5)
-    else:
-        ax_u.axhline(game.u_max_shared, color="C4", linestyle=":", linewidth=2, label="Shared input maximum")
-        ax_u.axhline(game.u_min_shared, color="C4", linestyle=":", linewidth=2, label="Shared input minimum")
-    ax_u.set_xlabel("time")
-    ax_u.set_ylabel("input")
-    ax_u.set_title("Inputs vs time")
-    ax_u.grid(True, alpha=0.3)
-    # ax_u.legend(loc="best", ncol=2)
+    input_constraint_axes = []
+    for component, (ax, label, suffix) in enumerate(zip(
+        input_axes, (input_x_label, input_y_label), ("ax", "ay")
+    )):
+        for player in range(game.n_players):
+            lines[f"p{player + 1}_{suffix}"], = ax.plot(
+                [], [], color=f"C{player}", drawstyle="steps-post",
+                label=f"P{player + 1}",
+            )
+        if game.is_unicycle:
+            lower, upper = ((-game.a_max, game.a_max) if component == 0
+                            else game.steering_bounds)
+        else:
+            lower, upper = game.u_min, game.u_max
+        ax.axhline(upper, color="0.5", linestyle=":", linewidth=1)
+        ax.axhline(lower, color="0.5", linestyle=":", linewidth=1)
+        ax.set_xlabel("time")
+        ax.set_ylabel(label)
+        ax.set_title(f"Input {label} vs time")
+        ax.grid(True, alpha=0.3)
+        # ax.legend(loc="upper left", ncol=game.n_players, fontsize=7)
 
-    input_constraint_text = None
-    if game.is_unicycle:
-        input_constraint_text = ax_u.text(
-            0.02, 0.97, "", transform=ax_u.transAxes,
-            ha="left", va="top", fontsize=8,
-            bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.85},
-        )
+        # Single-integrator inputs share the full velocity budget. Only
+        # unicycle acceleration has a shared input budget in GameDynamics.
+        shared_ax = None
+        if game.is_single_integrator or (game.is_unicycle and component == 0):
+            constraint_label = (r"$\sum_i \|v_i\|^2 / (n v_{\max}^2)$"
+                                if game.is_single_integrator else
+                                r"$\sum_i a_i^2 / a_{\max}^2$")
+            shared_ax, lines[f"shared_{suffix}"] = _shared_constraint_axis(
+                ax, constraint_label, drawstyle="steps-post"
+            )
+        input_constraint_axes.append(shared_ax)
 
-    velocity_constraint_text = None
+    ax_velocity_constraint = None
     if ax_velocity is not None:
-        velocity_constraint_text = ax_velocity.text(
-            0.02, 0.97, "", transform=ax_velocity.transAxes,
-            ha="left", va="top", fontsize=8,
-            bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.85},
+        ax_velocity_constraint, lines["shared_velocity"] = _shared_constraint_axis(
+            ax_velocity, r"$\sum_i \|v_i\|^2 / (n v_{\max}^2)$"
         )
         lines["p1_v"], = ax_velocity.plot([], [], "C0-", label="P1 v")
         lines["p2_v"], = ax_velocity.plot([], [], "C1-", label="P2 v")
@@ -450,20 +556,14 @@ def plot_simulation_init(game):
         lines["p2_v_prediction"], = ax_velocity.plot(
             [], [], "C1--", alpha=0.8, label="P2 v prediction (Solver1)"
         )
-        velocity_limit = (game.v_max if game.is_unicycle
-                          else np.sqrt(game.vx_max**2 + game.vy_max**2))
-        ax_velocity.axhline(
-            velocity_limit, color="C4", linestyle=":", linewidth=2,
-            label="Maximum speed" if game.is_unicycle else "RSS maximum",
-        )
         ax_velocity.set_xlabel("time")
         ax_velocity.set_ylabel("velocity")
-        ax_velocity.set_title(
-            "Player speeds" if game.is_unicycle
-            else "Player velocities and root sum square"
-        )
+        ax_velocity.set_title("Player speeds")
         ax_velocity.grid(True, alpha=0.3)
-        # ax_velocity.legend(loc="best", ncol=2)
+        # ax_velocity.legend(
+        #     handles=[lines[f"p{p + 1}_v"] for p in range(game.n_players)],
+        #     loc="upper left", ncol=game.n_players, fontsize=7,
+        # )
 
     ax_cost.set_xlabel("iteration")
     ax_cost.set_ylabel("total cost-to-go")
@@ -514,12 +614,6 @@ def plot_simulation_init(game):
     lines["nash_product"], = ax_nash_product.plot(
         [], [], "C2--", linewidth=1.5, label=r"$\Delta_1\Delta_2$"
     )
-    bargaining_text = ax_bargaining_text.text(
-        0.02, 0.95, "No bargaining agreement yet",
-        transform=ax_bargaining_text.transAxes,
-        va="top", ha="left", fontsize=8, family="monospace",
-        bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "alpha": 0.82},
-    )
     ax_bargaining.set_xlabel("time")
     ax_bargaining.set_ylabel(r"$\gamma^*$", color="C4")
     ax_bargaining.set_ylim(-0.05, 1.05)
@@ -531,17 +625,17 @@ def plot_simulation_init(game):
 
     fig.tight_layout()
     state = {
+        "game": game,
         "fig": fig,
         "ax_xy": ax_xy,
-        "ax_u": ax_u,
-        "input_constraint_text": input_constraint_text,
+        "input_axes": input_axes,
+        "input_constraint_axes": input_constraint_axes,
         "ax_velocity": ax_velocity,
-        "velocity_constraint_text": velocity_constraint_text,
+        "ax_velocity_constraint": ax_velocity_constraint,
         "ax_cost": ax_cost,
         "ax_distance": ax_distance,
         "ax_bargaining": ax_bargaining,
         "ax_nash_product": ax_nash_product,
-        "bargaining_text": bargaining_text,
         "lines": lines,
         "separation_circles": separation_circles,
         "iteration": game.iteration,
@@ -571,7 +665,6 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
     state = getattr(plot_simulation, "_state", None)
 
     fig = state["fig"]
-    ax_u = state["ax_u"]
     ax_xy = state["ax_xy"]
     lines = state["lines"]
     ax_velocity = state["ax_velocity"]
@@ -583,7 +676,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
     history = game.get_history()
     t = history["t"]
     x = history["x"]
-    u = history["u"]
+    u = np.asarray(history["u"], dtype=float).reshape(-1, game.nu)
     p2_i = game.nx1
     p3_i = 2 * game.nx1
 
@@ -733,63 +826,6 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
         )
         ax_nash_product.relim()
         ax_nash_product.autoscale_view(scalex=False)
-
-    baseline = np.asarray(
-        getattr(solution, "disagreement_costs", []), dtype=float
-    ).reshape(-1)
-    improvements = np.asarray(
-        getattr(solution, "bargaining_improvements", []), dtype=float
-    ).reshape(-1)
-    costs = np.asarray(
-        [
-            getattr(solution, "player1_cost", np.nan),
-            getattr(solution, "player2_cost", np.nan),
-            *([getattr(solution, "player3_cost", np.nan)]
-              if game.n_players == 3 else []),
-        ],
-        dtype=float,
-    )
-    terminal_index = getattr(solution, "terminal_sample_index", None)
-    terminal_time = getattr(solution, "terminal_sample_time", np.nan)
-    gamma_text = (
-        f"alpha*=({bargaining_gamma:.3f}, {bargaining_gamma2:.3f}, {bargaining_gamma3:.3f})"
-        if game.n_players == 3 else f"gamma*={bargaining_gamma:.3f}"
-    )
-    if selection_method == "weighted_sum" and (
-        np.isfinite(bargaining_gamma)
-        and np.isfinite(cooperative_objective)
-        and np.all(np.isfinite(costs))
-    ):
-        weights = np.asarray(
-            getattr(solution, "cooperative_cost_weights", []), dtype=float
-        ).reshape(-1)
-        weights_text = (
-            "(" + ", ".join(f"{weight:.3g}" for weight in weights) + ")"
-            if weights.shape == (game.n_players,) else "unknown"
-        )
-        state["bargaining_text"].set_text(
-            f"z*: sample {terminal_index}, safe t={terminal_time:.2f}\n"
-            f"{gamma_text}   "
-            f"weighted cost={cooperative_objective:.3g}\n"
-            f"C=({', '.join(f'{cost:.3g}' for cost in costs)})\n"
-            f"weights={weights_text}"
-        )
-    elif (
-        np.isfinite(bargaining_gamma)
-        and np.isfinite(nash_product)
-        and baseline.shape == (game.n_players,)
-        and improvements.shape == (game.n_players,)
-        and np.all(np.isfinite(costs))
-    ):
-        state["bargaining_text"].set_text(
-            f"z*: sample {terminal_index}, safe t={terminal_time:.2f}\n"
-            f"{gamma_text}   Nash={float(nash_product):.3g}\n"
-            f"C=({', '.join(f'{cost:.3g}' for cost in costs)})\n"
-            f"b=({', '.join(f'{value:.3g}' for value in baseline)})\n"
-            f"Delta=({', '.join(f'{value:.3g}' for value in improvements)})"
-        )
-    else:
-        state["bargaining_text"].set_text("No cooperative selection yet")
 
     candidate_terminal_states = np.asarray(
         getattr(solution, "candidate_terminal_states", []), dtype=float
@@ -1054,48 +1090,23 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
     lines["Obstacle"].set_data(x_elip, y_elip)
 
     valid_u = np.isfinite(u).all(axis=1)
-    if np.any(valid_u):
-        tu = t[:-1][valid_u]
-        uu = u[valid_u]
-        lines["p1_ax"].set_data(tu, uu[:, 0])
-        lines["p1_ay"].set_data(tu, uu[:, 1])
-        lines["p2_ax"].set_data(tu, uu[:, 2])
-        lines["p2_ay"].set_data(tu, uu[:, 3])
-        if game.n_players == 3:
-            lines["p3_ax"].set_data(tu, uu[:, 4])
-            lines["p3_ay"].set_data(tu, uu[:, 5])
-        lines["sum_ax"].set_data(tu, np.sum(uu[:, 0::2], axis=1))
-        lines["sum_ay"].set_data(tu, np.sum(uu[:, 1::2], axis=1))
-    else:
-        lines["p1_ax"].set_data([], [])
-        lines["p1_ay"].set_data([], [])
-        lines["p2_ax"].set_data([], [])
-        lines["p2_ay"].set_data([], [])
-        if game.n_players == 3:
-            lines["p3_ax"].set_data([], [])
-            lines["p3_ay"].set_data([], [])
-        lines["sum_ax"].set_data([], [])
-        lines["sum_ay"].set_data([], [])
-
-    if state["input_constraint_text"] is not None:
-        shared_input_limit = game.a_max**2
-        if np.any(valid_u):
-            acceleration_sum_squares = float(np.sum(uu[-1, 0::game.nu1]**2))
-            state["input_constraint_text"].set_text(
-                rf"$\sum_i a_i^2 = {acceleration_sum_squares:.3f}$"
-                + rf" / $\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit)"
+    tu = t[:-1][valid_u]
+    uu = u[valid_u]
+    for component, suffix in enumerate(("ax", "ay")):
+        for player in range(game.n_players):
+            lines[f"p{player + 1}_{suffix}"].set_data(
+                tu, uu[:, player * game.nu1 + component]
             )
-            state["input_constraint_text"].set_color(
-                "C3" if acceleration_sum_squares > shared_input_limit else "black"
-            )
-        else:
-            state["input_constraint_text"].set_text(
-                rf"$\,a_{{\max}}^2 = {shared_input_limit:.3f}$ (shared limit; no inputs yet)"
-            )
-            state["input_constraint_text"].set_color("black")
-
-    ax_u.relim()
-    ax_u.autoscale_view()
+        shared_ax = state["input_constraint_axes"][component]
+        if shared_ax is not None:
+            if game.is_single_integrator:
+                ratio = np.sum(uu**2, axis=1) / (game.n_players * game.v_max**2)
+            else:
+                ratio = np.sum(uu[:, 0::game.nu1]**2, axis=1) / game.a_max**2
+            lines[f"shared_{suffix}"].set_data(tu, ratio)
+            _autoscale_shared_constraint(shared_ax)
+        state["input_axes"][component].relim()
+        state["input_axes"][component].autoscale_view()
 
     if ax_velocity is not None:
         if game.is_unicycle:
@@ -1112,17 +1123,13 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
                         np.linalg.norm(x[:, p3_i + 2:p3_i + 4], axis=1))
             lines["p3_v"].set_data(t, p3_speed)
 
-        speed_sum_squares = float(p1_speed[-1]**2 + p2_speed[-1]**2)
+        speed_sum_squares = p1_speed**2 + p2_speed**2
         if game.n_players == 3:
-            speed_sum_squares += float(p3_speed[-1]**2)
-        shared_velocity_limit = game.n_players * game.v_max**2
-        state["velocity_constraint_text"].set_text(
-            rf"$\sum_i \|v_i\|^2 = {speed_sum_squares:.3f}$"
-            + f" / {shared_velocity_limit:.3f} (shared limit)"
+            speed_sum_squares += p3_speed**2
+        lines["shared_velocity"].set_data(
+            t, speed_sum_squares / (game.n_players * game.v_max**2)
         )
-        state["velocity_constraint_text"].set_color(
-            "C3" if speed_sum_squares > shared_velocity_limit else "black"
-        )
+        _autoscale_shared_constraint(state["ax_velocity_constraint"])
 
         if solution is not None and hasattr(solution, "x1") and hasattr(solution, "x2"):
             predicted_x1 = np.asarray(solution.x1, dtype=float)

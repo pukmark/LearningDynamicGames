@@ -33,7 +33,7 @@ class GameDynamics:
         v_max=3.0,
         a_max=5.0,
         psi_max=2*np.pi,
-        d_sep=1.0,
+        d_sep=2.0,
         dynamics_type=4,
         MaxIterations=50,
         psidot_min=-np.pi/2,
@@ -474,8 +474,8 @@ class GameDynamics:
         desired_speed = max(self.v_min, min(1.5, position_gain * distance))
         if distance < 10.0:
             desired_speed = min(desired_speed, 0.3 * distance)
-            target[1] = target[1] - 0.5*distance*np.cos(target[3])
-            target[0] = target[0] - 0.5*distance*np.sin(target[3])
+            target[0] = target[0] - 0.5*distance*np.cos(target[3])
+            target[1] = target[1] - 0.5*distance*np.sin(target[3])
             error = target[:2] - state[:2]
             desired_heading = np.arctan2(error[1], error[0])
         if self.has_heading_state:
@@ -486,10 +486,10 @@ class GameDynamics:
                 desired_speed = max(
                     self.v_min, desired_speed * max(0.0, np.cos(desired_heading - state[3]))
                 )
-            steering = self.heading_rate_control(state[3], desired_heading, self.dt*2.0)
+            steering = self.heading_rate_control(state[3], desired_heading, self.dt)
         else:
             steering = desired_heading
-        acceleration = np.clip(speed_gain * (desired_speed - state[2]), max(-0.25,-(state[2]-1e-1)/self.dt), 0.25)
+        acceleration = np.clip(speed_gain * (desired_speed - state[2]), max(-0.5,-(state[2]-1e-1)/self.dt), 0.5)
         return np.array([acceleration, steering])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
@@ -502,7 +502,7 @@ class GameDynamics:
         """
         
         target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-        if self.t < 11.0:
+        if self.t < 7.0:
             target[0] = -20.0
             target[1] = 6.0
         
@@ -551,11 +551,9 @@ class GameDynamics:
         and returns only player 2's two control components.
         """
         target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-        if self.t < 13.0 and self.dynamics_type == 4:
+        if self.t < 9.0:
             target[0] = -20.0
             target[1] = 1.0
-        elif self.t < 2.5 and self.dynamics_type == 3:
-            target[0] += 4.0
         
         if self.is_unicycle:
             return self._unicycle_goal_controller(1, target)
@@ -591,12 +589,9 @@ class GameDynamics:
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        if self.t < 8.0 and self.dynamics_type == 3:
-            target[0] = 1.0
-            target[1] = 6.0
-        elif self.t < 10.0 and self.dynamics_type == 4:
+        if self.t < 7.0:
             target[0] = 20.0
-            target[1] = 8.0
+            target[1] = 12.0
         
         if self.n_players < 3:
             raise ValueError("player 3 is not part of this game")
@@ -656,7 +651,7 @@ class GameDynamics:
                 
         cost = 0
         Qk = np.diag([0.1, 0.1, 0.1, 1.0])
-        Rk = np.diag([0.1, 1.0])
+        Rk = np.diag([0.25, 1.0])
         for k in range(N):
             cost += sum(ca.bilin(k**2*Rk, u[p*self.nu1:(p+1)*self.nu1,k]) for p in range(self.n_players))
             cost += sum(ca.bilin(Qk,x[p*self.nx1:(p+1)*self.nx1,k+1]-self.targets[p]) for p in range(self.n_players))
