@@ -489,7 +489,7 @@ class GameDynamics:
             steering = self.heading_rate_control(state[3], desired_heading, self.dt)
         else:
             steering = desired_heading
-        acceleration = np.clip(speed_gain * (desired_speed - state[2]), max(-0.5,-(state[2]-1e-1)/self.dt), 0.5)
+        acceleration = np.clip(speed_gain * (desired_speed - state[2]), max(-0.25,-(state[2]-1e-1)/self.dt), 0.25)
         return np.array([acceleration, steering])
 
     def SimpleController1(self, position_gain=2.0, velocity_gain=5.0, max_velocity=1.0):
@@ -502,7 +502,7 @@ class GameDynamics:
         """
         
         target = np.asarray(self.x1f, dtype=float).reshape(-1).copy()
-        if self.t < 7.0:
+        if self.t < 10.0:
             target[0] = -20.0
             target[1] = 6.0
         
@@ -551,7 +551,7 @@ class GameDynamics:
         and returns only player 2's two control components.
         """
         target = np.asarray(self.x2f, dtype=float).reshape(-1).copy()
-        if self.t < 9.0:
+        if self.t < 13.0:
             target[0] = -20.0
             target[1] = 1.0
         
@@ -589,7 +589,7 @@ class GameDynamics:
     def SimpleController3(self, position_gain=2.0, velocity_gain=5.0):
         """Return the same bounded goal-tracking controller for player 3."""
         target = np.asarray(self.x3f, dtype=float).reshape(-1).copy()
-        if self.t < 7.0:
+        if self.t < 11.0:
             target[0] = 20.0
             target[1] = 12.0
         
@@ -632,8 +632,8 @@ class GameDynamics:
             for p in range(self.n_players):
                 opti.subject_to(x[p*self.nx1:(p+1)*self.nx1,k+1] == self.dynamics_fun(x[p*self.nx1:(p+1)*self.nx1,k], u[p*self.nu1:(p+1)*self.nu1,k]))
             for p in range(self.n_players):
-                # opti.subject_to(u[p*self.nu1,k] >= -2)
-                # opti.subject_to(u[p*self.nu1,k] <= 2)
+                opti.subject_to(u[p*self.nu1,k] >= -2)
+                opti.subject_to(u[p*self.nu1,k] <= 2)
                 opti.subject_to(u[p*self.nu1+1,k] >= -np.pi/5)
                 opti.subject_to(u[p*self.nu1+1,k] <= np.pi/5)
                 opti.subject_to(x[p*self.nx1+2,k] >= 0.0)
