@@ -104,8 +104,8 @@ class GameDynamics:
         self.d_sep = d_sep
         self.CD = 0.25  # drag coefficient for unicycle dynamics
         self.x_elip = 1.0
-        self.y_elip = 1.0
-        self.a_elip = 5.0
+        self.y_elip = 0.0
+        self.a_elip = 6.0
         self.b_elip = 2.0
 
         self.x0 = x0
@@ -140,11 +140,11 @@ class GameDynamics:
             steering_min, steering_max = self.steering_bounds
             self.f_private = ca.Function(
                 'f_private', [x1_sym, u1_sym], [
-                    u1_sym[0] + self.a_max,
-                    self.a_max - u1_sym[0],
+                    1-u1_sym[0]/self.a_max,
+                    u1_sym[0]/self.a_max+1,
                     x1_sym[2] - self.v_min,
-                    u1_sym[1] - steering_min,
-                    steering_max - u1_sym[1],
+                    u1_sym[1]/steering_min+1,
+                    1-u1_sym[1]/steering_max,
                     (x1_sym[0] - self.x_elip)**2/self.a_elip**2 + (x1_sym[1] - self.y_elip)**2/self.b_elip**2-1,
                 ],
             )
@@ -172,15 +172,13 @@ class GameDynamics:
                 offset_x = player * self.nx1
                 velocities.append(x_sym[offset_x + 2])
                 acc.append(u_sym[0])
-        shared_constraints.append(self.n_players * self.v_max**2 - sum(ca.sumsqr(v) for v in velocities))
-        shared_constraints.append(self.a_max**2 - sum(ca.sumsqr(acc) for acc in acc))
+        shared_constraints.append(1 - sum(ca.sumsqr(v) for v in velocities)/(self.n_players * self.v_max**2))
+        shared_constraints.append(1 - sum(ca.sumsqr(acc) for acc in acc)/self.a_max**2)
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
                 i = first * self.nx1
                 j = second * self.nx1
-                shared_constraints.append(
-                    ca.sumsqr(x_sym[i:i + 2] - x_sym[j:j + 2]) - self.d_sep**2
-                )
+                shared_constraints.append( ca.sumsqr(x_sym[i:i + 2] - x_sym[j:j + 2])/self.d_sep**2-1 )
         self.f_shared = ca.Function('f_shared', [x_sym, *u_syms], shared_constraints)
         # self.f_shared = ca.Function('f_shared', [x_sym, u1_sym, u2_sym], [ca.sumsqr(x_sym[:2]-x_sym[self.nx1:self.nx1+2]) - self.d_sep**2])
 
@@ -193,6 +191,12 @@ class GameDynamics:
         k3 = self.dynamics(x1_sym + 0.5 * dt * k2, u1_sym)
         k4 = self.dynamics(x1_sym + dt * k3, u1_sym)
         self.xkp1 = x1_sym + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        
+        if self.has_heading_state:
+            theta = self.xkp1[3]
+            self.xkp1[3] = theta - 2 * ca.pi * ca.floor(
+                    (theta + ca.pi) / (2 * ca.pi)
+        )
         
         # RK2:
         # k1 = self.dynamics(x1_sym, u1_sym)

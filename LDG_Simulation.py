@@ -35,8 +35,8 @@ cooperative_mode = True
 bargaining_gammas = np.array([0.5])
 bargaining_gamma1 = np.array([1/3.0, 0.35, 0.30, 0.35, 0.40, 0.30, 0.40, 0.50, 0.25, 0.25, 0.80, 0.10, 0.10])
 bargaining_gamma2 = np.array([1/3.0, 0.30, 0.35, 0.35, 0.30, 0.40, 0.40, 0.25, 0.50, 0.25, 0.10, 0.80, 0.10])
-# bargaining_gamma1 = np.array([1/3.0])
-# bargaining_gamma2 = np.array([1/3.0])
+bargaining_gamma1 = np.array([1/3.0])
+bargaining_gamma2 = np.array([1/3.0])
 cooperative_selection = "nash_bargaining" # "weighted_sum", "nash_bargaining"
 cooperative_cost_weights = np.array([1.0, 1.0, 1.0]) / 3.0
 # Nash bargaining compares remaining costs against this total minus costs
@@ -47,14 +47,14 @@ baseline_mode = "accepted_plan"
 disagreement_costs = None
 Niterations = 15
 arrival_tolerance = 0.01
-N = 6
+N = 5
 x1f = np.array([player_state(0.0, 9.0, psi=np.deg2rad(90), dynamics_type=dynamics_type)])
 x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-135), dynamics_type=dynamics_type)])
 x3f = np.array([player_state(9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x0_players = (
-    player_state(0.0, -9.0, psi=np.deg2rad(135), dynamics_type=dynamics_type),
-    player_state(4.5, 4.5, psi=np.deg2rad(179), dynamics_type=dynamics_type),
-    player_state(-4.5, 4.5, psi=np.deg2rad(45), dynamics_type=dynamics_type),
+    player_state(0.0, -9.0, vx=0.25, psi=np.deg2rad(135), dynamics_type=dynamics_type),
+    player_state(4.5, 4.5, vx=0.25, psi=np.deg2rad(180), dynamics_type=dynamics_type),
+    player_state(-4.5, 4.5, vx=0.25, psi=np.deg2rad(45), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
 

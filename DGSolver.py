@@ -484,7 +484,7 @@ class DGSolver:
         self.Rk = R_cost
 
         # Unicycle inputs are [a, psi] or [a, psi_dot]; only acceleration is penalized.
-        input_cost_weights = (np.diag([1.0, 0.0]) if self.game.is_unicycle
+        input_cost_weights = (np.diag([1.0, 0.1]) if self.game.is_unicycle
                               else np.eye(self.game.nu1))
         self.p_tol = p_tol
         self.verbose = verbose
@@ -1266,7 +1266,7 @@ class DGSolver:
         else:
             cost_filter = (Cost2Go <= prev_cost2go + self.cost_tol) 
         if not Extended_Horizon:
-            horizon_search = max(5-self.game.iteration, 1.5)*self.N * self.dt
+            horizon_search = max(5-self.game.iteration, 1.0)*self.N * self.dt
         else:
             horizon_search = 5*self.N * self.dt
         candidate_indices = np.where(
@@ -1275,7 +1275,7 @@ class DGSolver:
                 | (distance_to_previous_terminal_state1 < 2.0)
                 | (distance_to_previous_terminal_state2 < 2.0)
                 | (distance_to_previous_terminal_state3 < 2.0))
-            & (sample_times > t + (self.N-1) * self.dt - 1e-5)
+            & (sample_times >= t + (self.N-1) * self.dt - 1e-5)
             
         )[0]
 
