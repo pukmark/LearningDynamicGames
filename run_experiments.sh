@@ -21,9 +21,9 @@ echo "Run 2: Multiple GNEs + Nash Bargaining"
 python3 "$PYTHON_SCRIPT" \
     --cooperative-selection nash_bargaining \
     --bargaining-gamma1 \
-        0.3333333333333333 0.35 0.30 0.35 0.40 0.30 0.40 0.50 0.25 0.25 0.80 0.10 0.10 \
+        0.3333333333333333 0.35 0.30 0.35 0.40 0.30 0.30 0.50 0.25 0.25 0.80 0.10 0.10 \
     --bargaining-gamma2 \
-        0.3333333333333333 0.30 0.35 0.35 0.30 0.40 0.40 0.25 0.50 0.25 0.10 0.80 0.10 \
+        0.3333333333333333 0.30 0.35 0.35 0.30 0.40 0.30 0.25 0.50 0.25 0.10 0.80 0.10 \
     --movie LDG_multiple_GNE_nash.mp4
 
 
