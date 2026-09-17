@@ -484,7 +484,7 @@ class DGSolver:
         self.Rk = R_cost
 
         # Unicycle inputs are [a, psi] or [a, psi_dot]; only acceleration is penalized.
-        input_cost_weights = (np.diag([0.1, 0.1]) if self.game.is_unicycle
+        input_cost_weights = (np.diag([0.1, 0.2]) if self.game.is_unicycle
                               else np.eye(self.game.nu1))
         self.p_tol = p_tol
         self.verbose = verbose

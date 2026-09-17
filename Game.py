@@ -187,17 +187,9 @@ class GameDynamics:
         # [px, py, vx, vy] per player for double-integrator mode,
         # or [px, py, v] / [px, py, v, psi] for unicycle modes 3 / 4.
         k1 = self.dynamics(x1_sym, u1_sym)
-        if self.has_heading_state:
-            k1[3] = k1[3] - 2 * ca.pi * ca.floor((k1[3] + ca.pi) / (2 * ca.pi))
         k2 = self.dynamics(x1_sym + 0.5 * dt *k1, u1_sym)
-        if self.has_heading_state:
-            k2[3] = k2[3] - 2 * ca.pi * ca.floor((k2[3] + ca.pi) / (2 * ca.pi))
         k3 = self.dynamics(x1_sym + 0.5 * dt * k2, u1_sym)
-        if self.has_heading_state:
-            k3[3] = k3[3] - 2 * ca.pi * ca.floor((k3[3] + ca.pi) / (2 * ca.pi))
         k4 = self.dynamics(x1_sym + dt * k3, u1_sym)
-        if self.has_heading_state:
-            k4[3] = k4[3] - 2 * ca.pi * ca.floor((k4[3] + ca.pi) / (2 * ca.pi))
         self.xkp1 = x1_sym + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
         if self.has_heading_state:
