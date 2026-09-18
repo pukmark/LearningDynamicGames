@@ -53,7 +53,7 @@ x2f = np.array([player_state(-9.0, -9.0, psi=np.deg2rad(-135), dynamics_type=dyn
 x3f = np.array([player_state(9.0, -9.0, psi=np.deg2rad(-90), dynamics_type=dynamics_type)])
 x0_players = (
     player_state(0.0, -9.0, vx=0.25, psi=np.deg2rad(135), dynamics_type=dynamics_type),
-    player_state(4.5, 4.5, vx=0.25, psi=np.deg2rad(-160), dynamics_type=dynamics_type),
+    player_state(4.5, 4.5, vx=0.25, psi=np.deg2rad(-170), dynamics_type=dynamics_type),
     player_state(-4.5, 4.5, vx=0.25, psi=np.deg2rad(45), dynamics_type=dynamics_type),
 )
 alpha1, alpha2 = 1/3.0, 1/3.0
@@ -259,7 +259,8 @@ if __name__ == '__main__':
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             GameFlag = Game.step(u=u)
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
-            plot_simulation(Game, Solver1, LearnedData)
+            if iter > 0 or int(Game.t*10)%100 == 0:
+                plot_simulation(Game, Solver1, LearnedData)
             
             default_gamma = (
                 np.array([alpha1, alpha2]) if player_count == 3 else alpha1

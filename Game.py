@@ -141,8 +141,8 @@ class GameDynamics:
             self.f_private = ca.Function(
                 'f_private', [x1_sym, u1_sym], [
                     x1_sym[2] - self.v_min,
-                    u1_sym[1]/steering_min+1,
-                    1-u1_sym[1]/steering_max,
+                    u1_sym[1] - steering_min,
+                    steering_max - u1_sym[1],
                     (x1_sym[0] - self.x_elip)**2/self.a_elip**2 + (x1_sym[1] - self.y_elip)**2/self.b_elip**2-1,
                 ],
             )
@@ -190,11 +190,11 @@ class GameDynamics:
         k4 = self.dynamics(x1_sym + dt * k3, u1_sym)
         self.xkp1 = x1_sym + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
-        if self.has_heading_state:
-            theta = self.xkp1[3]
-            self.xkp1[3] = theta - 2 * ca.pi * ca.floor(
-                    (theta + ca.pi) / (2 * ca.pi)
-        )
+        # if self.has_heading_state:
+        #     theta = self.xkp1[3]
+        #     self.xkp1[3] = theta - 2 * ca.pi * ca.floor(
+        #             (theta + ca.pi) / (2 * ca.pi)
+        # )
 
         self.dynamics_fun = ca.Function('fdynamics_fun', [x1_sym, u1_sym], [self.xkp1])
         
@@ -425,10 +425,10 @@ class GameDynamics:
         self.t += dt
         
         # if x[3] is angle, make sure it is in [-pi, pi]:
-        if self.has_heading_state:
-            for player in range(self.n_players):
-                offset = player * self.nx1 + 3
-                self.x[offset] = (self.x[offset] + np.pi) % (2 * np.pi) - np.pi
+        # if self.has_heading_state:
+        #     for player in range(self.n_players):
+        #         offset = player * self.nx1 + 3
+        #         self.x[offset] = (self.x[offset] + np.pi) % (2 * np.pi) - np.pi
 
         if not self._private_constraints_satisfied(self.x, controls):
             self._log_history(u, self.PRIVATE_CONSTRAINT_VIOLATED)

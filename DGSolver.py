@@ -2799,9 +2799,12 @@ class DGSolver:
         opti.set_value(self.mpc_x0, x0)
         opti.set_value(self.mpc_xf, xf)
         
-        opti.set_initial(self.mpc_x, np.linspace(x0, xf, self.N+1).T)
-        opti.set_initial(self.mpc_u, np.zeros((self.game.nu, self.N)))
+
         try:
+            for p in range(self.game.n_players):
+                xp_sol, up_sol = self.SinglePlayerMpcController(x0, xf, p)
+                opti.set_initial(self.mpc_x[p*self.game.nx1:(p+1)*self.game.nx1,:], xp_sol.T)
+                opti.set_initial(self.mpc_u[p*self.game.nu1:(p+1)*self.game.nu1,:], up_sol.T)
             opti.solve()
         except:
             return False, 0, 0
@@ -2850,3 +2853,52 @@ class DGSolver:
         
         return
         
+    def SinglePlayerMpcController(self, x0, xf, p):
+        """Return the same bounded goal-tracking controller for player 3."""
+        
+        opti = ca.Opti()
+        N = self.N
+        x = opti.variable(self.game.nx1, N+1)
+        u = opti.variable(self.game.nu1, N)
+        
+        opti.subject_to(x[:,0] == x0[p*self.game.nx1:(p+1)*self.game.nx1])
+        for k in range(N):
+            opti.subject_to(x[:,k+1] == self.game.dynamics_fun(x[:,k], u[:,k]))
+            f_private = self.game.f_private(x[:,k], u[:,k])
+            [opti.subject_to(f >= 0) for f in f_private]
+        opti.subject_to(x[:,N] == xf[p*self.game.nx1:(p+1)*self.game.nx1])
+                
+        cost = 0
+        for k in range(N):
+            cost += self.stage_costs[p](x[:,k], u[:,k])
+        opti.minimize(cost)
+        
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 500, "print_level": 0, "mu_strategy": "adaptive"}}
+        
+        
+        opti.solver("ipopt", p_opts)
+        opti.set_initial(x, np.linspace(x0[p*self.game.nx1:(p+1)*self.game.nx1], xf[p*self.game.nx1:(p+1)*self.game.nx1], self.N+1).T)
+        opti.set_initial(u, np.zeros((self.game.nu1, self.N)))
+        
+        u_guess = np.zeros((self.game.nu1, N))
+
+        x_guess = np.zeros((self.game.nx1, N + 1))
+        x_guess[:, 0] = x0[p*self.game.nx1:(p+1)*self.game.nx1]
+
+        for k in range(N):
+            x_guess[:, k + 1] = np.array(
+                self.game.dynamics_fun(
+                    x_guess[:, k],
+                    u_guess[:, k]
+                )
+            ).squeeze()
+
+        opti.set_initial(x, x_guess)
+        opti.set_initial(u, u_guess)
+        
+        opti.solve()
+
+        x_sol = opti.debug.value(x).T
+        u_sol = opti.debug.value(u).T
+        
+        return x_sol, u_sol

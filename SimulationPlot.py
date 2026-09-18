@@ -217,7 +217,7 @@ def save_iteration_figure(
     ax.grid(True, alpha=0.25)
     ax.legend(loc="best", ncol=game.n_players, frameon=False, fontsize=9)
     if game.is_unicycle:
-        input_labels = ("a", r"$\dot{\psi}$" if game.has_heading_state else r"$\psi$")
+        input_labels = ("a", r"$\dot{\psi}[deg/sec]$" if game.has_heading_state else r"$\psi[deg]$")
     else:
         prefix = "v" if game.is_single_integrator else "a"
         input_labels = (f"{prefix}x", f"{prefix}y")
@@ -507,7 +507,7 @@ def plot_simulation_init(game):
 
     if game.is_unicycle:
         input_x_label = "a"
-        input_y_label = r"$\dot{\psi}$" if game.has_heading_state else r"$\psi$"
+        input_y_label = r"$\dot{\psi[deg/sec]}$" if game.has_heading_state else r"$\psi[deg]$"
     else:
         input_label = "v" if game.is_single_integrator else "a"
         input_x_label, input_y_label = f"{input_label}x", f"{input_label}y"
@@ -664,7 +664,10 @@ def plot_simulation_init(game):
     }
     plot_simulation._state = state
     if plt.get_backend().lower() != "agg":
-        plt.pause(1.0)
+        if game.iteration == 1:
+            plt.pause(0.01)
+        else:
+            plt.pause(0.2)
 
 def plot_simulation(game, solver1, LearnedData, pause=0.01):
     """Update a realtime plot for the current game and solver state."""
@@ -1099,6 +1102,10 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
     valid_u = np.isfinite(u).all(axis=1)
     tu = t[:-1][valid_u]
     uu = u[valid_u]
+    if game.is_unicycle:
+        for player in range(game.n_players):
+            uu[:,player+1] = np.rad2deg(uu[:,player+1])
+            
     for component, suffix in enumerate(("ax", "ay")):
         for player in range(game.n_players):
             lines[f"p{player + 1}_{suffix}"].set_data(
