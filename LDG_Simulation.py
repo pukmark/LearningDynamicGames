@@ -259,7 +259,7 @@ if __name__ == '__main__':
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
             GameFlag = Game.step(u=u)
             shared_constraint_active |= is_shared_constraint_active(Game, Game.x, u)
-            if iter > 0 or int(Game.t*10)%100 == 0:
+            if iter > 0 or int(Game.t*10)%10 == 0:
                 plot_simulation(Game, Solver1, LearnedData)
             
             default_gamma = (

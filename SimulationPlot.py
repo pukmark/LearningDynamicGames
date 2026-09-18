@@ -1104,7 +1104,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
     uu = u[valid_u]
     if game.is_unicycle:
         for player in range(game.n_players):
-            uu[:,player+1] = np.rad2deg(uu[:,player+1])
+            uu[:,player*game.nu1+1] = np.rad2deg(uu[:,player*game.nu1+1])
             
     for component, suffix in enumerate(("ax", "ay")):
         for player in range(game.n_players):
