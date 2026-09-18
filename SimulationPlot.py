@@ -229,13 +229,13 @@ def save_iteration_figure(
             )
         input_ax.set_ylabel(label)
         input_ax.set_title(f"Input {label}")
-        if game.is_unicycle:
-            lower, upper = ((-game.a_max, game.a_max) if component == 0
-                            else game.steering_bounds)
-        else:
-            lower, upper = game.u_min, game.u_max
-        input_ax.axhline(lower, color="0.5", linestyle=":", linewidth=1)
-        input_ax.axhline(upper, color="0.5", linestyle=":", linewidth=1)
+        # if game.is_unicycle:
+        #     lower, upper = ((-game.a_max, game.a_max) if component == 0
+        #                     else game.steering_bounds)
+        # else:
+        #     lower, upper = game.u_min, game.u_max
+        # input_ax.axhline(lower, color="0.5", linestyle=":", linewidth=1)
+        # input_ax.axhline(upper, color="0.5", linestyle=":", linewidth=1)
         if game.is_unicycle and component == 0:
             shared_ax, shared_line = _shared_constraint_axis(
                 input_ax, r"$\sum_i a_i^2 / a_{\max}^2$", drawstyle="steps-post"
@@ -520,13 +520,13 @@ def plot_simulation_init(game):
                 [], [], color=f"C{player}", drawstyle="steps-post",
                 label=f"P{player + 1}",
             )
-        if game.is_unicycle:
-            lower, upper = ((-game.a_max, game.a_max) if component == 0
-                            else game.steering_bounds)
-        else:
-            lower, upper = game.u_min, game.u_max
-        ax.axhline(upper, color="0.5", linestyle=":", linewidth=1)
-        ax.axhline(lower, color="0.5", linestyle=":", linewidth=1)
+        # if game.is_unicycle:
+        #     lower, upper = ((-game.a_max, game.a_max) if component == 0
+        #                     else game.steering_bounds)
+        # else:
+        #     lower, upper = game.u_min, game.u_max
+        # ax.axhline(upper, color="0.5", linestyle=":", linewidth=1)
+        # ax.axhline(lower, color="0.5", linestyle=":", linewidth=1)
         ax.set_xlabel("time")
         ax.set_ylabel(label)
         ax.set_title(f"Input {label} vs time")
@@ -1134,7 +1134,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
         if game.n_players == 3:
             speed_sum_squares += p3_speed**2
         lines["shared_velocity"].set_data(
-            t, speed_sum_squares / (game.v2_max**2)
+            t, speed_sum_squares / (game.v2_max)
         )
         _autoscale_shared_constraint(state["ax_velocity_constraint"])
 

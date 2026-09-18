@@ -1120,7 +1120,7 @@ class DGSolver:
         alignment = max(0.0, np.cos(heading - state[3]))
         desired_speed = np.clip(
             min(distance / remaining_time, braking_speed) * alignment,
-            self.game.v_min, self.game.v_max,
+            self.game.v_min, np.sqrt(self.game.v2_max)/self.game.n_players,
         )
         acceleration = np.clip((desired_speed - state[2]) / self.game.dt,
                                -self.game.a_max, self.game.a_max)
@@ -2115,7 +2115,7 @@ class DGSolver:
                                                 + 2.0 * self.game.a_max * distance)
                         desired_speed = np.clip(
                             min(distance / remaining_time, braking_speed),
-                            self.game.v_min, self.game.v_max,
+                            self.game.v_min, np.sqrt(self.game.v2_max)/self.game.n_players,
                         )
                         # dynamics_fun integrates over game.dt for the unicycle.
                         acceleration = (desired_speed - xp[k, 2]) / self.game.dt

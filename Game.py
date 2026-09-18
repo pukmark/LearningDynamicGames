@@ -140,8 +140,6 @@ class GameDynamics:
             steering_min, steering_max = self.steering_bounds
             self.f_private = ca.Function(
                 'f_private', [x1_sym, u1_sym], [
-                    1-u1_sym[0]/self.a_max,
-                    u1_sym[0]/self.a_max+1,
                     x1_sym[2] - self.v_min,
                     u1_sym[1]/steering_min+1,
                     1-u1_sym[1]/steering_max,
