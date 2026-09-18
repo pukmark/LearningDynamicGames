@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from matplotlib.patches import Circle, Patch
+from matplotlib.patches import Circle, Ellipse, Patch
 from matplotlib.figure import Figure
 from pathlib import Path
 
@@ -191,6 +191,13 @@ def save_iteration_figure(
     input_axes = [figure.add_subplot(grid[row, 1]) for row in (0, 1)]
     velocity_ax = figure.add_subplot(grid[2, 1])
     gamma_ax = figure.add_subplot(grid[3, 1])
+    if game.is_unicycle:
+        ax.add_patch(Ellipse(
+            (game.x_elip, game.y_elip), width=2 * game.a_elip,
+            height=2 * game.b_elip, facecolor="0.85", edgecolor="0.3",
+            linestyle="--", linewidth=1.0, hatch="///", zorder=0,
+            label="Obstacle",
+        ))
     for player in range(game.n_players):
         offset = player * game.nx1
         color = f"C{player}"
@@ -254,10 +261,10 @@ def save_iteration_figure(
     velocity_ax.set_ylabel("velocity")
     velocity_ax.set_title("Player speeds")
     shared_ax, shared_line = _shared_constraint_axis(
-        velocity_ax, r"$\sum_i \|v_i\|^2 / (n v_{\max}^2)$"
+        velocity_ax, r"$\sum_i \|v_i\|^2 / (v_{\max}^2)$"
     )
     shared_line.set_data(
-        speed_times, np.sum(speeds**2, axis=1) / (game.n_players * game.v_max**2)
+        speed_times, np.sum(speeds**2, axis=1) / (game.v2_max)
     )
     _autoscale_shared_constraint(shared_ax)
 
@@ -1127,7 +1134,7 @@ def plot_simulation(game, solver1, LearnedData, pause=0.01):
         if game.n_players == 3:
             speed_sum_squares += p3_speed**2
         lines["shared_velocity"].set_data(
-            t, speed_sum_squares / (game.n_players * game.v_max**2)
+            t, speed_sum_squares / (game.v2_max**2)
         )
         _autoscale_shared_constraint(state["ax_velocity_constraint"])
 

@@ -5,7 +5,9 @@ Example:
 
 Iteration numbers start at 1. Each panel includes all earlier paths with low
 opacity. The bottom plot uses saved total costs across every iteration; missing
-costs are shown as n/a in panels and as gaps in the cost plot.
+costs appear as gaps in the cost plot.
+The 7.16-inch-wide figure spans both columns of a paper, with trajectories in
+one row and costs below. PNG output also saves a companion vector PDF.
 """
 
 import argparse
@@ -14,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+from matplotlib.patches import Ellipse
 from matplotlib.ticker import MaxNLocator
 
 from LDG_Simulation_aux import load_learned_data
@@ -50,11 +53,14 @@ def _plot_data(learned_data):
     return paths, costs, players, nx
 
 
-def create_iteration_figure(learned_data, iterations, previous_alpha=0.12):
-    """Create a 2x2 XY comparison plus a compact plot of all saved costs.
+def create_iteration_figure(learned_data, iterations, previous_alpha=0.12,
+                            obstacle=(1.0, 0.0, 6.0, 2.0)):
+    """Create a paper-sized trajectory row plus a compact plot of saved costs.
 
     ``iterations`` contains one to four distinct, one-based iteration numbers,
     displayed in the supplied order. The figure opens no interactive window.
+    ``obstacle`` is (center_x, center_y, semi_axis_x, semi_axis_y), or None.
+    Defaults match the current Game.py; obstacle geometry is not in old pickles.
     """
     paths, costs, players, nx = _plot_data(learned_data)
     iterations = list(iterations)
@@ -65,6 +71,11 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12):
         raise ValueError(f"iteration numbers must be between 1 and {len(paths)}")
     if not 0.0 <= previous_alpha <= 1.0:
         raise ValueError("previous_alpha must be between 0 and 1")
+    if obstacle is not None:
+        obstacle = np.asarray(obstacle, dtype=float)
+        if (obstacle.shape != (4,) or not np.all(np.isfinite(obstacle))
+                or np.any(obstacle[2:] <= 0)):
+            raise ValueError("obstacle needs a finite center and two positive semi-axes")
 
     # Use common limits for the selected paths and their earlier histories.
     positions = np.concatenate([
@@ -72,14 +83,16 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12):
         for path in paths[:max(iterations)] for player in range(players)
     ])
     lower, upper = positions.min(axis=0), positions.max(axis=0)
+    if obstacle is not None:
+        lower = np.minimum(lower, obstacle[:2] - obstacle[2:])
+        upper = np.maximum(upper, obstacle[:2] + obstacle[2:])
     padding = np.maximum(0.08 * (upper - lower), 0.1)
-    figure = Figure(figsize=(12, 10), layout="constrained")
-    grid = figure.add_gridspec(3, 2, height_ratios=(1.0, 1.0, 0.25))
+    figure = Figure(figsize=(7.16, 2.9), layout="constrained")
+    figure.get_layout_engine().set(w_pad=0.04, h_pad=0.06,
+                                   wspace=0.025, hspace=0.04)
+    grid = figure.add_gridspec(2, 4, height_ratios=(1.0, 0.45))
     for panel in range(4):
-        cell = grid[panel // 2, panel % 2].subgridspec(
-            2, 1, height_ratios=(1.0, 0.05), hspace=0.02,
-        )
-        ax = figure.add_subplot(cell[0])
+        ax = figure.add_subplot(grid[0, panel])
         if panel >= len(iterations):
             ax.set_axis_off()
             ax.text(0.5, 0.5, "No iteration selected", transform=ax.transAxes,
@@ -97,11 +110,13 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12):
                                     & (marker_times < times[-1] - 1e-9)]
         for player in range(players):
             offset, color = player * nx, f"C{player}"
+            value = costs[number - 1, player]
+            cost_label = f"{value:.0f}" if np.isfinite(value) else "n/a"
             for previous in paths[:number - 1]:
                 ax.plot(previous[:, offset], previous[:, offset + 1], color=color,
-                        linewidth=1.0, alpha=previous_alpha, zorder=1)
+                        linewidth=0.6, alpha=previous_alpha, zorder=1)
             ax.plot(current[:, offset], current[:, offset + 1], color=color,
-                    linewidth=2.0, label=f"P{player + 1}", zorder=3)
+                    linewidth=1.0, label=f"{cost_label:4.4}", zorder=3)
             # Interpolate on the saved path if a half-second falls between samples.
             marker_positions = np.column_stack([
                 np.interp(marker_times, times, current[:, offset + axis])
@@ -115,63 +130,87 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12):
                                        rtol=0.0, atol=1e-9), axis=1)
             marker_positions = marker_positions[~(at_start | at_end)]
             ax.plot(marker_positions[:, 0], marker_positions[:, 1], "o",
-                    color=color, markersize=4, zorder=4)
+                    color=color, markersize=1.8, zorder=4)
             ax.plot(current[0, offset], current[0, offset + 1], "s",
-                    color=color, markersize=6, zorder=4)
+                    color=color, markersize=3, zorder=4)
             ax.plot(current[-1, offset], current[-1, offset + 1], "^",
-                    color=color, markersize=6, zorder=4)
+                    color=color, markersize=3, zorder=4)
         ax.set(xlim=(lower[0] - padding[0], upper[0] + padding[0]),
                ylim=(lower[1] - padding[1], upper[1] + padding[1]),
-               xlabel="x position", ylabel="y position", title=f"Iteration {number}")
+               xlabel="x position", ylabel="y position" if panel == 0 else "",
+               title=f"Iteration {number}")
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=3, steps=[1, 2, 5, 10]))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 5, 10]))
+        ax.tick_params(axis="y", labelleft=panel == 0)
         ax.set_aspect("equal", adjustable="box")
         ax.grid(True, alpha=0.25)
-        if panel == 0:
-            ax.legend(loc="best", ncol=players, frameon=False, fontsize=8)
-        cost_text = "   ".join(
-            f"P{player + 1}: {value:.2f}" if np.isfinite(value) else f"P{player + 1}: n/a"
-            for player, value in enumerate(costs[number - 1])
-        )
-        # footer.text(0.98, 0.5, f"Current cost   {cost_text}",
-        #             transform=footer.transAxes, ha="right", va="center", fontsize=9)
+        if obstacle is not None:
+            ax.add_patch(Ellipse(
+                obstacle[:2], width=2 * obstacle[2], height=2 * obstacle[3],
+                facecolor="0.85", edgecolor="0.3", linestyle="--",
+                linewidth=0.6, hatch="///", zorder=0,
+            ))
+        ax.legend(loc="best", ncol=1, frameon=True, framealpha=0.85,
+                  edgecolor="none", fontsize=6, handlelength=1.0,
+                  handletextpad=0.3, labelspacing=0.2, borderaxespad=0.3)
 
-    ax_cost = figure.add_subplot(grid[2, :])
+    ax_cost = figure.add_subplot(grid[1, :])
     numbers = np.arange(1, len(paths) + 1)
     for player in range(players):
         ax_cost.plot(numbers, costs[:, player], "-o", color=f"C{player}",
-                     linewidth=1.5, markersize=4, label=f"P{player + 1}", zorder=2)
+                     linewidth=1.0, markersize=2.3, label=f"P{player + 1}", zorder=2)
     for number in iterations:
         ax_cost.axvline(number, color="0.7", linewidth=0.8, alpha=0.4, zorder=0)
-    ax_cost.set(xlabel="iteration", ylabel="total cost", title="Player costs across iterations",
+    ax_cost.set(xlabel="Iterations", ylabel="Total cost",
                 xlim=(0.5, len(paths) + 0.5))
     ax_cost.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax_cost.grid(True, alpha=0.25)
-    ax_cost.legend(loc="best", ncol=players, frameon=False, fontsize=8)
+    ax_cost.legend(loc="upper right", ncol=players, frameon=False, fontsize=7)
+    ax_cost.set_yscale("log", nonpositive="mask")
     if not np.any(np.isfinite(costs)):
         ax_cost.text(0.5, 0.5, "No total costs stored in this file",
                      transform=ax_cost.transAxes, ha="center", va="center", color="0.4")
+    for ax in figure.axes:
+        ax.tick_params(axis="both", which="both", labelsize=7, pad=2,
+                       width=0.5, length=2)
+        ax.title.set_fontsize(8)
+        for axis in (ax.xaxis, ax.yaxis):
+            axis.label.set_fontsize(8)
+            axis.labelpad = 2
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
     return figure
 
 
 def save_iteration_figure(
     learned_data, iterations, path="Results/iteration_comparison.png", previous_alpha=0.12,
+    obstacle=(1.0, 0.0, 6.0, 2.0),
 ):
     """Save the selected-iteration figure as PNG, PDF, or SVG."""
-    figure = create_iteration_figure(learned_data, iterations, previous_alpha)
+    figure = create_iteration_figure(learned_data, iterations, previous_alpha, obstacle)
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output, dpi=300, bbox_inches="tight")
+    with plt.rc_context({"pdf.fonttype": 42, "ps.fonttype": 42}):
+        figure.savefig(output, dpi=600)
+        if output.suffix.lower() == ".png":
+            figure.savefig(output.with_suffix(".pdf"))
     return output
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data", type=Path, default=Path("./Results/LearnedData.pkl"),
-                        help="saved data file (default: LearnedData.pkl)")
+    parser.add_argument("--data", type=Path, default=Path("./Results/Multiple_GNE_NashBargain_LearnedData.pkl"),
+                        help="saved data file (default: Multiple_GNE_NashBargain_LearnedData.pkl)")
     parser.add_argument("--iterations", nargs="+", type=int, default=[1, 4, 8, 15],
                         help="up to four iteration numbers, starting at 1; defaults to evenly spaced iterations")
     parser.add_argument("--output", type=Path, default=Path("Results/iteration_comparison.png"))
     parser.add_argument("--previous-alpha", type=float, default=0.12)
+    parser.add_argument("--obstacle", nargs=4, type=float,
+                        metavar=("X", "Y", "A", "B"), default=(1.0, 0.0, 6.0, 2.0),
+                        help="ellipse center and semi-axes (default: 1 0 6 2, matching Game.py)")
+    parser.add_argument("--no-obstacle", action="store_true",
+                        help="omit the obstacle for runs without one")
     args = parser.parse_args()
     try:
         learned_data = load_learned_data(args.data)
@@ -179,7 +218,10 @@ def main():
         iterations = args.iterations
         if iterations is None:
             iterations = list(np.linspace(1, len(paths), min(4, len(paths)), dtype=int))
-        output = save_iteration_figure(learned_data, iterations, args.output, args.previous_alpha)
+        output = save_iteration_figure(
+            learned_data, iterations, args.output, args.previous_alpha,
+            None if args.no_obstacle else args.obstacle,
+        )
     except (OSError, ValueError) as error:
         parser.error(str(error))
     plt.show()

@@ -30,7 +30,7 @@ class GameDynamics:
         vy_min=-2,
         vy_max=2,
         v_min=0.0,
-        v_max=3.0,
+        v2_max=20.0,
         a_max=5.0,
         psi_max=2*np.pi,
         d_sep=2.0,
@@ -83,7 +83,7 @@ class GameDynamics:
         self.vy_min = float(vy_min)
         self.vy_max = float(vy_max)
         self.v_min = float(v_min)
-        self.v_max = float(v_max)
+        self.v2_max = float(v2_max)
         self.a_max = float(a_max)
         self.psi_max = float(psi_max)
         self.psidot_min = float(psidot_min)
@@ -91,9 +91,9 @@ class GameDynamics:
         if (not np.all(np.isfinite([self.psidot_min, self.psidot_max]))
                 or self.psidot_min >= self.psidot_max):
             raise ValueError("heading-rate bounds must be finite and pdot_min < psidot_max")
-        if min(self.v_max, self.a_max, self.psi_max) <= 0:
+        if min(self.v2_max, self.a_max, self.psi_max) <= 0:
             raise ValueError("unicycle limits must be positive")
-        if self.v_min < 0 or self.v_min >= self.v_max:
+        if self.v_min < 0 or self.v_min >= self.v2_max:
             raise ValueError("v_min must satisfy 0 <= v_min < v_max")
         
         # shared constranits data
@@ -172,7 +172,7 @@ class GameDynamics:
                 offset_x = player * self.nx1
                 velocities.append(x_sym[offset_x + 2])
                 acc.append(u_sym[0])
-        shared_constraints.append(1 - sum(ca.sumsqr(v) for v in velocities)/(self.n_players * self.v_max**2))
+        shared_constraints.append(1 - sum(ca.sumsqr(v) for v in velocities)/(self.v2_max))
         shared_constraints.append(1 - sum(ca.sumsqr(acc) for acc in acc)/self.a_max**2)
         for first in range(self.n_players):
             for second in range(first + 1, self.n_players):
@@ -197,13 +197,8 @@ class GameDynamics:
             self.xkp1[3] = theta - 2 * ca.pi * ca.floor(
                     (theta + ca.pi) / (2 * ca.pi)
         )
-        
-        # RK2:
-        # k1 = self.dynamics(x1_sym, u1_sym)
-        # k2 = self.dynamics(x1_sym + dt * k1, u1_sym)
-        # self.xkp1 = x1_sym + dt * k1
 
-        self.dynamics_fun = ca.Function('fynamics_fun', [x1_sym, u1_sym], [self.xkp1])
+        self.dynamics_fun = ca.Function('fdynamics_fun', [x1_sym, u1_sym], [self.xkp1])
         
         
         return
