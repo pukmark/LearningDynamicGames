@@ -2841,7 +2841,7 @@ class DGSolver:
                 cost += self.stage_costs[p](x[p*self.game.nx1:(p+1)*self.game.nx1,k], u[p*self.game.nu1:(p+1)*self.game.nu1,k])
         opti.minimize(cost)
         
-        p_opts = {"print_time": 0, "ipopt": {"max_iter": 500, "print_level": 0, "mu_strategy": "adaptive", "tol": 1e-5}}
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 200, "print_level": 0, "mu_strategy": "adaptive", "tol": 1e-5}}
         
         
         opti.solver("ipopt", p_opts)
@@ -2873,7 +2873,7 @@ class DGSolver:
             cost += self.stage_costs[p](x[:,k], u[:,k])
         opti.minimize(cost)
         
-        p_opts = {"print_time": 0, "ipopt": {"max_iter": 500, "print_level": 0, "mu_strategy": "adaptive", "tol": 1e-5}}
+        p_opts = {"print_time": 0, "ipopt": {"max_iter": 200, "print_level": 0, "mu_strategy": "adaptive", "tol": 1e-5}}
         
         
         opti.solver("ipopt", p_opts)
