@@ -30,7 +30,7 @@ class GameDynamics:
         vy_min=-2,
         vy_max=2,
         v_min=0.0,
-        v2_max=20.0,
+        v2_max=30.0,
         a_max=5.0,
         psi_max=2*np.pi,
         d_sep=2.0,
