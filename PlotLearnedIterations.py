@@ -4,10 +4,9 @@ Example:
     .venv/bin/python PlotLearnedIterations.py --iterations 1 3 5 10
 
 Iteration numbers start at 1. Each panel includes all earlier paths with low
-opacity. The bottom plot uses saved total costs across every iteration; missing
-costs appear as gaps in the cost plot.
+opacity. Saved total costs appear in each panel's legend.
 The 7.16-inch-wide figure spans both columns of a paper, with trajectories in
-one row and costs below. PNG output also saves a companion vector PDF.
+one row. PNG output also saves a companion vector PDF.
 """
 
 import argparse
@@ -55,7 +54,7 @@ def _plot_data(learned_data):
 
 def create_iteration_figure(learned_data, iterations, previous_alpha=0.12,
                             obstacle=(1.0, 0.0, 6.0, 2.0)):
-    """Create a paper-sized trajectory row plus a compact plot of saved costs.
+    """Create a paper-sized row of trajectory panels.
 
     ``iterations`` contains one to four distinct, one-based iteration numbers,
     displayed in the supplied order. The figure opens no interactive window.
@@ -87,10 +86,10 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12,
         lower = np.minimum(lower, obstacle[:2] - obstacle[2:])
         upper = np.maximum(upper, obstacle[:2] + obstacle[2:])
     padding = np.maximum(0.08 * (upper - lower), 0.1)
-    figure = Figure(figsize=(7.16, 2.9), layout="constrained")
+    figure = Figure(figsize=(7.16, 1.9), layout="constrained")
     figure.get_layout_engine().set(w_pad=0.04, h_pad=0.06,
                                    wspace=0.025, hspace=0.04)
-    grid = figure.add_gridspec(2, 4, height_ratios=(1.0, 0.45))
+    grid = figure.add_gridspec(1, 4)
     for panel in range(4):
         ax = figure.add_subplot(grid[0, panel])
         if panel >= len(iterations):
@@ -116,7 +115,7 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12,
                 ax.plot(previous[:, offset], previous[:, offset + 1], color=color,
                         linewidth=0.6, alpha=previous_alpha, zorder=1)
             ax.plot(current[:, offset], current[:, offset + 1], color=color,
-                    linewidth=1.0, label=f"{cost_label:4.4}", zorder=3)
+                    linewidth=1.0, label=cost_label, zorder=3)
             # Interpolate on the saved path if a half-second falls between samples.
             marker_positions = np.column_stack([
                 np.interp(marker_times, times, current[:, offset + axis])
@@ -154,22 +153,6 @@ def create_iteration_figure(learned_data, iterations, previous_alpha=0.12,
                   edgecolor="none", fontsize=6, handlelength=1.0,
                   handletextpad=0.3, labelspacing=0.2, borderaxespad=0.3)
 
-    ax_cost = figure.add_subplot(grid[1, :])
-    numbers = np.arange(1, len(paths) + 1)
-    for player in range(players):
-        ax_cost.plot(numbers, costs[:, player], "-o", color=f"C{player}",
-                     linewidth=1.0, markersize=2.3, label=f"P{player + 1}", zorder=2)
-    for number in iterations:
-        ax_cost.axvline(number, color="0.7", linewidth=0.8, alpha=0.4, zorder=0)
-    ax_cost.set(xlabel="Iterations", ylabel="Total cost",
-                xlim=(0.5, len(paths) + 0.5))
-    ax_cost.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax_cost.grid(True, alpha=0.25)
-    ax_cost.legend(loc="upper right", ncol=players, frameon=False, fontsize=7)
-    ax_cost.set_yscale("log", nonpositive="mask")
-    if not np.any(np.isfinite(costs)):
-        ax_cost.text(0.5, 0.5, "No total costs stored in this file",
-                     transform=ax_cost.transAxes, ha="center", va="center", color="0.4")
     for ax in figure.axes:
         ax.tick_params(axis="both", which="both", labelsize=7, pad=2,
                        width=0.5, length=2)
@@ -200,7 +183,7 @@ def save_iteration_figure(
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data", type=Path, default=Path("./Results/Multiple_GNE_NashBargain_LearnedData.pkl"),
+    parser.add_argument("--data", type=Path, default=Path("./Results/Multiple_GNE_NashBargain.pkl"),
                         help="saved data file (default: Multiple_GNE_NashBargain_LearnedData.pkl)")
     parser.add_argument("--iterations", nargs="+", type=int, default=[1, 4, 8, 15],
                         help="up to four iteration numbers, starting at 1; defaults to evenly spaced iterations")
@@ -227,7 +210,7 @@ def main():
     plt.show()
     print(f"Saved {output}; selected iterations: {', '.join(map(str, iterations))}")
     if not np.all(np.isfinite(costs)):
-        print("Some total costs are missing in the saved data; shown as n/a and gaps.")
+        print("Some total costs are missing in the saved data; shown as n/a in legends.")
 
 
 if __name__ == "__main__":
